@@ -1,11 +1,15 @@
+# -*- coding: UTF-8 -*-
+
 from data.CONLLReader import CONLLReader
 from data.AGPoSDataset import AGPoSDataset
 from torch.utils.data import DataLoader
 import numpy as np
 import logging
 import torch
+import re
 from transformers import AdamW, ElectraTokenizerFast, ElectraForTokenClassification
-
+from tokenization.Tokenization import fix_accents
+import unicodedata as ud
 
 class Tagger:
 
@@ -189,7 +193,7 @@ class Tagger:
         dataset = AGPoSDataset(encodings, labels, wids)
         total_acc, total_count = 0, 0
         model = ElectraForTokenClassification.from_pretrained(self.transformer_model, num_labels=len(unique_tags))
-        model.to(device)
+        model.to(self.device)
         model.train()
         loader = DataLoader(dataset, batch_size=16, shuffle=True)
         optim = AdamW(model.parameters(), lr=5e-5)
@@ -200,9 +204,9 @@ class Tagger:
             train_predictions = []
             for idx, batch in enumerate(loader):
                 optim.zero_grad()
-                input_ids = batch['input_ids'].to(device)
-                attention_mask = batch['attention_mask'].to(device)
-                labels = batch['labels'].to(device)
+                input_ids = batch['input_ids'].to(self.device)
+                attention_mask = batch['attention_mask'].to(self.device)
+                labels = batch['labels'].to(self.device)
                 outputs = model(input_ids, attention_mask=attention_mask, labels=labels)
                 for batch_idx, batch_piece in enumerate(labels):
                     for label_idx, label in enumerate(batch_piece):
@@ -222,25 +226,38 @@ class Tagger:
                 total_acc, total_count = 0, 0
         model.save_pretrained(output_model)
 
+    def calc_tag_probs(self,possible_tags,preds,word_no):
+        tag_probs = {}
+        for tag in possible_tags:
+            tag_prob = 1
+            for feat in tag:
+                try:
+                    prob_attr = preds[feat[0]][word_no][feat[1]]
+                except KeyError:
+                    print(feat[0]+' '+feat[1])
+                tag_prob *= prob_attr
+            tag_probs[tag] = tag_prob
+        tag_probs = sorted(tag_probs.items(), reverse=True, key=lambda x: x[1])
+        return tag_probs
+
     def tag_data(self, wids, tokens, preds, output_data):
         # Combines predictions, restricts outputs with lexicon and writes the output to CONLL file
         with open(output_data, 'w', encoding='UTF-8') as outfile:
             word_no = -1
             for sent_id, sent in enumerate(tokens):
+                if sent_id % 100 == 0:
+                    print("Tagging sentence "+str(sent_id))
                 for word_id, word in enumerate(sent):
                     wid = wids[sent_id][word_id]
                     word_no += 1
-                    tag_probs = {}
                     possible_tags = self.possible_tags
-                    if word in tagger.lexicon:
-                        possible_tags = tagger.lexicon[word]
-                    for tag in possible_tags:
-                        tag_prob = 1
-                        for feat in tag:
-                            prob_attr = preds[feat[0]][word_no][feat[1]]
-                            tag_prob *= prob_attr
-                        tag_probs[tag] = tag_prob
-                    tag_probs = sorted(tag_probs.items(), reverse=True, key=lambda x: x[1])
+                    if word in self.lexicon:
+                        possible_tags = self.lexicon[word]
+                    tag_probs = self.calc_tag_probs(possible_tags,preds,word_no)
+                    if sent_id==0 and word_id==3:
+                        print(word)
+                        for feat in self.feature_dict:
+                            print(preds[feat][word_no])
                     top_prediction = tag_probs[0]
                     tag = dict(top_prediction[0])
                     upos = "_"
@@ -334,13 +351,13 @@ class Tagger:
         encodings.pop("offset_mapping")
         dataset = AGPoSDataset(encodings, labels, wids)
         loader = DataLoader(dataset, batch_size=16, shuffle=True)
-        model = ElectraForTokenClassification.from_pretrained(model_dir).to(device)
+        model = ElectraForTokenClassification.from_pretrained(model_dir).to(self.device)
         preds_total = []
         with torch.no_grad():
             for idx, batch in enumerate(loader):
-                input_ids = batch['input_ids'].to(device)
-                attention_mask = batch['attention_mask'].to(device)
-                labels = batch['labels'].to(device)
+                input_ids = batch['input_ids'].to(self.device)
+                attention_mask = batch['attention_mask'].to(self.device)
+                labels = batch['labels'].to(self.device)
                 outputs = model(input_ids, attention_mask=attention_mask, labels=labels)
                 for batch_idx, batch_piece in enumerate(labels):
                     for label_idx, label in enumerate(batch_piece):
@@ -370,31 +387,112 @@ class Tagger:
             tag = tuple(tag)
             possible_tags.append(tag)
         return possible_tags
+    
+    def tag_string(self, string):
+        string = re.sub(r'([\.,])',r' \1',string)
+        string = re.sub(r'[᾽\'ʼ\\u0313´]', '’',string);
+        string = re.sub(r'[‑—]', ' — ',string);
+        string = re.sub('--', ' — ',string);
+        string = re.sub(r'[“”„‘«»ʽ"]', ' " ',string);
+        string = re.sub(r'[:··•˙]', ' ·',string)
+        string = re.sub(';', ';',string);
+        string = re.sub(';', ' ;',string)
+        string = re.sub(r'[（\(]', r'\( ',string);
+        string = re.sub(r'[）\)]', r' \)',string);
+        string = re.sub(r'\s+',' ',string)
+        string = re.sub(r'^ ', '',string);
+        string = re.sub(r' $', '',string);
+        tokens_str = string.split(' ')
+        tokens = []
+        current_sent = []
+        new_sent = False
+        for token in tokens_str:
+            token = ud.normalize("NFKD",token)
+            token = fix_accents(token)
+            if new_sent:
+                tokens.append(current_sent)
+                current_sent = []
+                new_sent = False
+            current_sent.append(token)
+            if token=='.' or token==';' or token == '·':
+                new_sent = True
+        tokens.append(current_sent)
+        wids = []
+        for sent in tokens:
+            wids_sent = []
+            for id, token in enumerate(sent):
+                wids_sent.append(str(id+1))
+            wids.append(wids_sent)
+        all_preds = {}
+        wids = []
+        wids.append(wids_sent)
+        for feat in self.feature_dict:
+            tags = []
+            for sent in tokens:
+                tag_sent = []
+                for token in sent:
+                    if feat == 'XPOS':
+                        tag_sent.append('PUNCT')
+                    else:
+                        tag_sent.append('_')
+                tags.append(tag_sent)
+            preds = self.predict_feature(f"{self.model_dir}/{feat}", wids, tokens, tags)
+            all_preds[feat] = preds
+        word_no = -1
+        output = ""
+        for sent_id, sent in enumerate(tokens):
+            for word_id, word in enumerate(sent):
+                    wid = wids[sent_id][word_id]
+                    word_no += 1
+                    possible_tags = self.possible_tags
+                    #if word in self.lexicon:
+                    #    possible_tags = self.lexicon[word]
+                    tag_probs = self.calc_tag_probs(possible_tags,all_preds,word_no)
+                    top_prediction = tag_probs[0]
+                    tag = dict(top_prediction[0])
+                    second_tag = {}
+                    if len(tag_probs)>1:
+                        second_prediction = tag_probs[1]
+                        second_tag = dict(second_prediction[0])
+                    output+=(str(top_prediction[1])+'\t'+'<font style="'+self.color_by_prob(top_prediction[1])+'">'+word+"</font>\t"+str(tag)+"\t"+str(second_tag)+"\n")
+        print(output)
 
+    def color_by_prob(self,prob):
+        green = 255*prob
+        red = 255*(1-prob)
+        return "color: rgb("+f'{red:.0f}'+","+f'{green:.0f}'+",0)";
 
-mode = 'test'
-device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-tagger = Tagger(transformer_model='files/greek/electra-grc-2',
-                training_data='files/greek/Data_Training.txt', include_upos=False,
-                include_xpos=True, model_dir='files/models')
-tagger.possible_tags = tagger.read_possible_tags('files/greek/PossibleTags.txt')
-tagger.lexicon = tagger.read_lexicon('files/greek/Lexicon.txt')
-tagger.add_training_data_to_lexicon()
-tagger.test_reader = CONLLReader('files/greek/Data_Test.txt')
-tagger.test_data = tagger.test_reader.parse_conll()
-tagger.tokenizer = ElectraTokenizerFast.from_pretrained(
-    'files/greek/electra-grc-2', do_lower_case=False, strip_accents=False,
-    model_max_length=512)
-if mode == 'train':
-    for feat in tagger.feature_dict:
-        wids, tokens, tags = tagger.read_tags(feat, tagger.training_data)
-        tagger.train_model(wids, tokens, tags, output_model=f"{tagger.model_dir}/{feat}")
-elif mode == 'test':
-    wids, tokens = tagger.read_tags(data=tagger.test_data, feature=None, return_tags=False)
-    all_preds = {}
-    for feat in tagger.feature_dict:
-        tags = tagger.read_tags(feat, tagger.test_data, return_words=False)
-        preds = tagger.predict_feature(f"{tagger.model_dir}/{feat}", wids, tokens, tags)
-        all_preds[feat] = preds
-    tagger.tag_data(wids=wids, tokens=tokens, preds=all_preds,
-                    output_data='models/tagged.txt')
+def main():
+    mode = 'test'
+    tagger = Tagger(transformer_model='files/greek/electra-grc-2',
+                    training_data='files/greek/Data_Training.txt', include_upos=False,
+                    include_xpos=True, model_dir='models')
+    tagger.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    tagger.possible_tags = tagger.read_possible_tags('files/greek/PossibleTags.txt')
+    tagger.lexicon = tagger.read_lexicon('files/greek/Lexicon.txt')
+    tagger.add_training_data_to_lexicon()
+    tagger.test_reader = CONLLReader('files/greek/Data_Test_small.txt')
+    tagger.test_data = tagger.test_reader.parse_conll()
+    tagger.tokenizer = ElectraTokenizerFast.from_pretrained(
+        'files/greek/electra-grc-2', do_lower_case=False, strip_accents=False,
+        model_max_length=512)
+    print("Read tagger data")
+    if mode == 'train':
+        for feat in tagger.feature_dict:
+            wids, tokens, tags = tagger.read_tags(feat, tagger.training_data)
+            tagger.train_model(wids, tokens, tags, output_model=f"{tagger.model_dir}/{feat}")
+    elif mode == 'test':
+        wids, tokens = tagger.read_tags(data=tagger.test_data, feature=None, return_tags=False)
+        all_preds = {}
+        for feat in tagger.feature_dict:
+            tags = tagger.read_tags(feat, tagger.test_data, return_words=False)
+            preds = tagger.predict_feature(f"{tagger.model_dir}/{feat}", wids, tokens, tags)
+            all_preds[feat] = preds
+            print("Predicted "+feat)
+        tagger.tag_data(wids=wids, tokens=tokens, preds=all_preds,
+                        output_data='files/greek/tagged_tmp.txt')
+    else:
+        tagger.tag_string('μῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος οὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε, πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν ἡρώων, αὐτοὺς δὲ ἑλώρια τεῦχε κύνεσσιν οἰωνοῖσί τε πᾶσι, Διὸς δ᾽ ἐτελείετο βουλή, ἐξ οὗ δὴ τὰ πρῶτα διαστήτην ἐρίσαντε Ἀτρεΐδης τε ἄναξ ἀνδρῶν καὶ δῖος Ἀχιλλεύς.')
+
+if __name__ == '__main__':
+    main()
