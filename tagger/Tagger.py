@@ -350,7 +350,7 @@ class Tagger:
         labels = self.encode_tags(tags, encodings, tag2id, print_output=False)
         encodings.pop("offset_mapping")
         dataset = AGPoSDataset(encodings, labels, wids)
-        loader = DataLoader(dataset, batch_size=16, shuffle=True)
+        loader = DataLoader(dataset, batch_size=16, shuffle=False)
         model = ElectraForTokenClassification.from_pretrained(model_dir).to(self.device)
         preds_total = []
         with torch.no_grad():
@@ -464,7 +464,7 @@ class Tagger:
 
 def main():
     mode = 'test'
-    tagger = Tagger(transformer_model='files/greek/electra-grc-2',
+    tagger = Tagger(transformer_model='mercelisw/electra-grc',
                     training_data='files/greek/Data_Training.txt', include_upos=False,
                     include_xpos=True, model_dir='models')
     tagger.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -474,7 +474,7 @@ def main():
     tagger.test_reader = CONLLReader('files/greek/Data_Test_small.txt')
     tagger.test_data = tagger.test_reader.parse_conll()
     tagger.tokenizer = ElectraTokenizerFast.from_pretrained(
-        'files/greek/electra-grc-2', do_lower_case=False, strip_accents=False,
+        'mercelisw/electra-grc', do_lower_case=False, strip_accents=False,
         model_max_length=512)
     print("Read tagger data")
     if mode == 'train':
