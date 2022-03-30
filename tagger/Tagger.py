@@ -235,6 +235,9 @@ class Tagger:
                     prob_attr = preds[feat[0]][word_no][feat[1]]
                 except KeyError:
                     print(feat[0]+' '+feat[1])
+                except IndexError:
+                    print(word_no)
+                    print(len(preds[feat[0]]))
                 tag_prob *= prob_attr
             tag_probs[tag] = tag_prob
         tag_probs = sorted(tag_probs.items(), reverse=True, key=lambda x: x[1])
@@ -254,10 +257,7 @@ class Tagger:
                     if word in self.lexicon:
                         possible_tags = self.lexicon[word]
                     tag_probs = self.calc_tag_probs(possible_tags,preds,word_no)
-                    if sent_id==0 and word_id==3:
-                        print(word)
-                        for feat in self.feature_dict:
-                            print(preds[feat][word_no])
+
                     top_prediction = tag_probs[0]
                     tag = dict(top_prediction[0])
                     upos = "_"
@@ -350,7 +350,7 @@ class Tagger:
         labels = self.encode_tags(tags, encodings, tag2id, print_output=False)
         encodings.pop("offset_mapping")
         dataset = AGPoSDataset(encodings, labels, wids)
-        loader = DataLoader(dataset, batch_size=16, shuffle=False)
+        loader = DataLoader(dataset, batch_size=16, shuffle=True)
         model = ElectraForTokenClassification.from_pretrained(model_dir).to(self.device)
         preds_total = []
         with torch.no_grad():
@@ -464,7 +464,7 @@ class Tagger:
 
 def main():
     mode = 'test'
-    tagger = Tagger(transformer_model='mercelisw/electra-grc',
+    tagger = Tagger(transformer_model='mercelisw/electra-grc-2',
                     training_data='files/greek/Data_Training.txt', include_upos=False,
                     include_xpos=True, model_dir='models')
     tagger.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -474,7 +474,7 @@ def main():
     tagger.test_reader = CONLLReader('files/greek/Data_Test_small.txt')
     tagger.test_data = tagger.test_reader.parse_conll()
     tagger.tokenizer = ElectraTokenizerFast.from_pretrained(
-        'mercelisw/electra-grc', do_lower_case=False, strip_accents=False,
+        'files/greek/electra-grc-2', do_lower_case=False, strip_accents=False,
         model_max_length=512)
     print("Read tagger data")
     if mode == 'train':
