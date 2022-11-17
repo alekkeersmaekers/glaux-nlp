@@ -257,6 +257,10 @@ class Tagger:
                     if word in self.lexicon:
                         possible_tags = self.lexicon[word]
                     tag_probs = self.calc_tag_probs(possible_tags,preds,word_no)
+<<<<<<< HEAD
+=======
+
+>>>>>>> 4405ef8bc987977040bf56aae040a87301d81ffc
                     top_prediction = tag_probs[0]
                     tag = dict(top_prediction[0])
                     upos = "_"
@@ -462,8 +466,8 @@ class Tagger:
         return "color: rgb("+f'{red:.0f}'+","+f'{green:.0f}'+",0)";
 
 def main():
-    mode = 'tag_string'
-    tagger = Tagger(transformer_model='files/greek/electra-grc-2',
+    mode = 'test'
+    tagger = Tagger(transformer_model='mercelisw/electra-grc-2',
                     training_data='files/greek/Data_Training.txt', include_upos=False,
                     include_xpos=True, model_dir='models')
     tagger.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -473,7 +477,7 @@ def main():
     #tagger.test_reader = CONLLReader('C:/Users/u0111778/Documents/NLPPipeline/Monostichoi/Tokenized_TXT/tlg0541.tlg047.txt')
     #tagger.test_data = tagger.test_reader.parse_conll()
     tagger.tokenizer = ElectraTokenizerFast.from_pretrained(
-        'files/greek/electra-grc-2', do_lower_case=False, strip_accents=False,
+        'mercelisw/electra-grc-2', do_lower_case=False, strip_accents=False,
         model_max_length=512)
     #print("Read tagger data")
     if mode == 'train':
