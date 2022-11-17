@@ -235,6 +235,9 @@ class Tagger:
                     prob_attr = preds[feat[0]][word_no][feat[1]]
                 except KeyError:
                     print(feat[0]+' '+feat[1])
+                except IndexError:
+                    print(word_no)
+                    print(len(preds[feat[0]]))
                 tag_prob *= prob_attr
             tag_probs[tag] = tag_prob
         tag_probs = sorted(tag_probs.items(), reverse=True, key=lambda x: x[1])
@@ -254,10 +257,6 @@ class Tagger:
                     if word in self.lexicon:
                         possible_tags = self.lexicon[word]
                     tag_probs = self.calc_tag_probs(possible_tags,preds,word_no)
-                    if sent_id==0 and word_id==3:
-                        print(word)
-                        for feat in self.feature_dict:
-                            print(preds[feat][word_no])
                     top_prediction = tag_probs[0]
                     tag = dict(top_prediction[0])
                     upos = "_"
@@ -350,7 +349,7 @@ class Tagger:
         labels = self.encode_tags(tags, encodings, tag2id, print_output=False)
         encodings.pop("offset_mapping")
         dataset = AGPoSDataset(encodings, labels, wids)
-        loader = DataLoader(dataset, batch_size=16, shuffle=True)
+        loader = DataLoader(dataset, batch_size=16, shuffle=False)
         model = ElectraForTokenClassification.from_pretrained(model_dir).to(self.device)
         preds_total = []
         with torch.no_grad():
@@ -445,8 +444,8 @@ class Tagger:
                     wid = wids[sent_id][word_id]
                     word_no += 1
                     possible_tags = self.possible_tags
-                    #if word in self.lexicon:
-                    #    possible_tags = self.lexicon[word]
+                    if word in self.lexicon:
+                        possible_tags = self.lexicon[word]
                     tag_probs = self.calc_tag_probs(possible_tags,all_preds,word_no)
                     top_prediction = tag_probs[0]
                     tag = dict(top_prediction[0])
@@ -463,7 +462,7 @@ class Tagger:
         return "color: rgb("+f'{red:.0f}'+","+f'{green:.0f}'+",0)";
 
 def main():
-    mode = 'test'
+    mode = 'tag_string'
     tagger = Tagger(transformer_model='files/greek/electra-grc-2',
                     training_data='files/greek/Data_Training.txt', include_upos=False,
                     include_xpos=True, model_dir='models')
@@ -471,12 +470,12 @@ def main():
     tagger.possible_tags = tagger.read_possible_tags('files/greek/PossibleTags.txt')
     tagger.lexicon = tagger.read_lexicon('files/greek/Lexicon.txt')
     tagger.add_training_data_to_lexicon()
-    tagger.test_reader = CONLLReader('files/greek/Data_Test_small.txt')
-    tagger.test_data = tagger.test_reader.parse_conll()
+    #tagger.test_reader = CONLLReader('C:/Users/u0111778/Documents/NLPPipeline/Monostichoi/Tokenized_TXT/tlg0541.tlg047.txt')
+    #tagger.test_data = tagger.test_reader.parse_conll()
     tagger.tokenizer = ElectraTokenizerFast.from_pretrained(
         'files/greek/electra-grc-2', do_lower_case=False, strip_accents=False,
         model_max_length=512)
-    print("Read tagger data")
+    #print("Read tagger data")
     if mode == 'train':
         for feat in tagger.feature_dict:
             wids, tokens, tags = tagger.read_tags(feat, tagger.training_data)
@@ -490,7 +489,7 @@ def main():
             all_preds[feat] = preds
             print("Predicted "+feat)
         tagger.tag_data(wids=wids, tokens=tokens, preds=all_preds,
-                        output_data='files/greek/tagged_tmp.txt')
+                        output_data='C:\\Users\\u0111778\\Documents\\NLPPipeline\\Cursorisch_WetenschappelijkeTeksten\\Tagged\\0541-047.txt')
     else:
         tagger.tag_string('μῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος οὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε, πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν ἡρώων, αὐτοὺς δὲ ἑλώρια τεῦχε κύνεσσιν οἰωνοῖσί τε πᾶσι, Διὸς δ᾽ ἐτελείετο βουλή, ἐξ οὗ δὴ τὰ πρῶτα διαστήτην ἐρίσαντε Ἀτρεΐδης τε ἄναξ ἀνδρῶν καὶ δῖος Ἀχιλλεύς.')
 

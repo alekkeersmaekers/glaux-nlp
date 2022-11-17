@@ -1,0 +1,110 @@
+:le:pastilla=s
+:no:pastill eas_ea masc
+:wd:pastilla=s indecl_noun masc nom sg
+:wd:pastilla= indecl_noun masc voc sg
+:wd:pastilla= indecl_noun masc gen sg
+:wd:pastilla=| indecl_noun masc dat sg
+:wd:pastilla=n indecl_noun masc acc sg
+:wd:pastillai= indecl_noun masc nom pl
+:wd:pastilla=n indecl_noun masc gen pl
+:wd:pastillai=s indecl_noun masc dat pl
+:wd:pastilla=s indecl_noun masc acc pl
+
+:le:tapita=s
+:no:tapit eas_ea masc
+:wd:tapita=s indecl_noun masc nom sg
+:wd:tapita= indecl_noun masc voc sg
+:wd:tapita= indecl_noun masc gen sg
+:wd:tapita=| indecl_noun masc dat sg
+:wd:tapita=n indecl_noun masc acc sg
+:wd:tapitai= indecl_noun masc nom pl
+:wd:tapita=n indecl_noun masc gen pl
+:wd:tapitai=s indecl_noun masc dat pl
+:wd:tapita=s indecl_noun masc acc pl
+
+:le:kollh/gas
+:no:kollhg as_a stem_acc masc
+:wd:kollh/gai indecl_noun masc nom pl
+:wd:kollhgw=n indecl_noun masc gen pl
+:wd:kollh/gais indecl_noun masc dat pl
+:wd:kollh/gas indecl_noun masc acc pl
+
+:le:a)bba=s
+:no:a)bb eas_ea masc
+:wd:a)bba=s indecl_noun masc nom sg
+:wd:a)bba= indecl_noun masc voc sg
+:wd:a)bba= indecl_noun masc gen sg
+:wd:a)bba=| indecl_noun masc dat sg
+:wd:a)bba=n indecl_noun masc acc sg
+:wd:a)bbai= indecl_noun masc nom pl
+:wd:a)bba=n indecl_noun masc gen pl
+:wd:a)bbai=s indecl_noun masc dat pl
+:wd:a)bba=s indecl_noun masc acc pl
+
+:le:sakka=s
+:no:sakk as_a masc
+:wd:sakka=s indecl_noun masc nom sg
+:wd:sakka= indecl_noun masc voc sg
+:wd:sakka= indecl_noun masc gen sg
+:wd:sakka=| indecl_noun masc dat sg
+:wd:sakka=n indecl_noun masc acc sg
+:wd:sakka= indecl_noun masc nom pl
+:wd:sakka=n indecl_noun masc gen pl
+:wd:sakkai=s indecl_noun masc dat pl
+:wd:sakka=s indecl_noun masc acc pl
+
+:le:a)mira=s
+:no:a)mir eas_ea masc
+:wd:a)mira=s indecl_noun masc nom sg
+:wd:a)mira= indecl_noun masc voc sg
+:wd:a)mira= indecl_noun masc gen sg
+:wd:a)mira=| indecl_noun masc dat sg
+:wd:a)mira=n indecl_noun masc acc sg
+:wd:a)mirai= indecl_noun masc nom pl
+:wd:a)mira=n indecl_noun masc gen pl
+:wd:a)mirai=s indecl_noun masc dat pl
+:wd:a)mira=s indecl_noun masc acc pl
+
+:le:krambita=s
+:no:krambit eas_ea masc
+:wd:krambita=s indecl_noun masc nom sg
+:wd:krambita= indecl_noun masc voc sg
+:wd:krambita= indecl_noun masc gen sg
+:wd:krambita=| indecl_noun masc dat sg
+:wd:krambita=n indecl_noun masc acc sg
+:wd:krambitai= indecl_noun masc nom pl
+:wd:krambita=n indecl_noun masc gen pl
+:wd:krambitai=s indecl_noun masc dat pl
+:wd:krambita=s indecl_noun masc acc pl
+
+:le:sugkollh/gas
+:no:sugkollhg as_a stem_acc masc
+:wd:sugkollh/gai indecl_noun masc nom pl
+:wd:sugkollhgw=n indecl_noun masc gen pl
+:wd:sugkollh/gais indecl_noun masc dat pl
+:wd:sugkollh/gas indecl_noun masc acc pl
+
+:le:o)rba=s
+:no:o)rb eas_ea masc
+:wd:o)rba=s indecl_noun masc nom sg
+:wd:o)rba= indecl_noun masc voc sg
+:wd:o)rba= indecl_noun masc gen sg
+:wd:o)rba=| indecl_noun masc dat sg
+:wd:o)rba=n indecl_noun masc acc sg
+:wd:o)rbai= indecl_noun masc nom pl
+:wd:o)rba=n indecl_noun masc gen pl
+:wd:o)rbai=s indecl_noun masc dat pl
+:wd:o)rba=s indecl_noun masc acc pl
+
+:le:kuama=s
+:no:kuama_ s_tos stem_acc masc
+:wd:kuama=s indecl_noun masc nom sg
+:wd:kuama= indecl_noun masc voc sg
+:wd:kuama= indecl_noun masc gen sg
+:wd:kuama=| indecl_noun masc dat sg
+:wd:kuama=n indecl_noun masc acc sg
+:wd:kuamai= indecl_noun masc nom pl
+:wd:kuama=n indecl_noun masc gen pl
+:wd:kuamai=s indecl_noun masc dat pl
+:wd:kuama=s indecl_noun masc acc pl
+

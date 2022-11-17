@@ -1,0 +1,319 @@
+:le:*qeo/s
+:no:*qe os_ou suff_acc masc sg pers_name
+
+:le:*faraw/
+:wd:*faraw/ indecl masc sg pers_name
+
+:le:*siw/n
+:wd:*siw/n indecl fem sg
+
+:le:a)mmwniako/n
+:no:a)mmwniak os_ou suff_acc neut
+
+:le:*nabouxodono/sor
+:wd:*nabouxodono/sor indecl masc sg pers_name
+
+:le:*skorpi/os
+:no:*skorpi os_ou stem_acc masc sg
+
+:le:*)asene/q
+:wd:*)asene/q indecl fem sg pers_name
+
+:le:*)efrai/m
+:wd:*)efrai/m indecl masc sg pers_name
+
+:le:*toco/ths
+:no:*tocot hs_ou stem_acc masc sg
+
+:le:*ai)go/kerws
+:no:*ai)go-ker ws_w,masc,sg
+@ acc sg end:w
+@ acc sg end:wn
+
+:le:*mwa/b
+:wd:*mwa/b indecl masc sg pers_name
+
+:le:*)iwa/b
+:wd:*)iwa/b indecl masc sg pers_name
+
+:le:*path/r
+:wd:*pa/ter irreg_decl3 masc voc sg
+:no:*pat irreg_decl3 masc sg hr_eros suff_acc
+
+:le:paro/son
+:wd:paro/son conj
+
+:le:*(udroxo/os
+:no:*(udro-xo os_ou stem_acc masc sg
+
+:le:paro/
+:wd:paro/ conj
+
+:le:o)cu/meli
+:no:o)cu-meli^ t_tos,neut
+
+:le:*xari/kleia
+:no:*xariklei a_hs fem sg pers_name
+
+:le:*)abessalw/m
+:wd:*)abessalw/m indecl masc sg pers_name
+
+:le:e)rusi/pelas
+:no:e)rusipel as_atos neut
+
+:le:*da/n
+:wd:*da/n indecl masc sg
+
+:le:kakoxumi/a
+:no:kako-xumi h_hs fem
+
+:le:mi/su
+:no:mis us_uos neut
+:no:mis us_ews neut
+
+:le:*)ammw/n
+:wd:*)ammw/n indecl masc sg pers_name
+
+:le:*)axaa/b
+:wd:*)axaa/b indecl masc sg pers_name
+
+:le:i(nati/
+:wd:i(nati/ interrog
+
+:le:*galaa/d
+:wd:*galaa/d indecl masc fem sg
+
+:le:*xanaa/n
+:wd:*xanaa/n indecl masc fem sg
+
+:le:*)ede/m
+:wd:*)ede/m indecl masc fem sg
+
+:le:*barou/x
+:wd:*barou/x indecl masc sg pers_name
+
+:le:*)iwsafa/t
+:wd:*)iwsafa/t indecl masc sg pers_name
+
+:le:*daui/d
+:wd:*daui/d indecl masc sg pers_name
+:wd:*daui+/d indecl masc sg pers_name
+:wd:*dabi/d indecl masc sg pers_name
+
+:le:*danih/l
+:wd:*danih/l indecl masc sg pers_name
+
+:le:*)iw/b
+:wd:*)iw/b indecl masc sg pers_name
+
+:le:*samouh/l
+:wd:*samouh/l indecl masc sg pers_name
+
+:le:*nw=e
+:wd:*nw=e indecl masc sg pers_name
+
+:le:*mixah/l
+:wd:*mixah/l indecl masc sg pers_name
+
+:le:*(ieroboa/m
+:wd:*(ieroboa/m indecl masc sg pers_name
+
+:le:*zugo/n
+:no:*zug os_ou suff_acc masc neut sg
+
+:le:*solomw=n
+:wd:*solomw=n indecl masc sg pers_name
+
+:le:*)iezekih/l
+:wd:*)iezekih/l indecl masc sg pers_name
+
+:le:*matqai=os
+:no:*matqai os_ou stem_acc masc sg pers_name
+
+:le:*leui/
+:wd:*leui/ indecl masc sg pers_name
+
+:le:*)elisai=os
+:no:*)elisai os_ou stem_acc masc sg pers_name
+:wd:*)elisaie/ indecl masc sg pers_name
+:wd:*(elisaie/ indecl masc sg pers_name
+
+:le:*)/abel
+:wd:*)/abel indecl masc sg pers_name
+
+:le:xeroubi/n
+:wd:xeroubi/n indecl neut
+:wd:xeroubi/m indecl neut
+:wd:xeroubei/m indecl neut
+:wd:xerou/b indecl neut
+:wd:*xeroubi/n indecl neut
+:wd:*xeroubi/m indecl neut
+:wd:*xeroubei/m indecl neut
+:wd:*xerou/b indecl neut
+
+:le:*)abime/lex
+:wd:*)abime/lex indecl masc sg pers_name
+
+:le:*)eliou/s
+:wd:*)eliou/s indecl masc sg pers_name
+:wd:*)hliou/ indecl masc sg pers_name
+:no:*)eli oos_oou suff_acc masc sg
+
+:le:*)iwakei/m
+:wd:*)iwakei/m indecl masc sg pers_name
+
+:le:e(ndeka/kis
+:wd:e(ndeka/^kis	adverb
+:wd:e(ndeka/^ki	adverb poetic
+
+:le:*)/afros
+:no:*)afr os_ou masc
+
+:le:*)enw/x
+:wd:*)enw/x indecl masc sg pers_name
+
+:le:*)iwa/s
+:wd:*)iwa/s indecl masc sg pers_name
+
+:le:*ga/d
+:wd:*ga/d indecl masc sg pers_name
+
+:le:*lw/t
+:wd:*lw/t indecl masc sg pers_name
+
+:le:*)hsau=
+:wd:*)hsau= indecl masc sg pers_name
+
+:le:*na/qan
+:wd:*na/qan indecl masc sg pers_name
+
+:le:*balaa/m
+:wd:*balaa/m indecl masc sg pers_name
+
+:le:*(roboa/m
+:wd:*(roboa/m indecl masc sg pers_name
+
+:le:*baiqh/l
+:wd:*baiqh/l indecl fem sg
+
+:le:*)iessai/
+:wd:*)iessai/ indecl masc sg pers_name
+
+:le:*(abroko/mhs
+:no:*(abrokom hs_ou masc sg pers_name
+
+:le:mei/wsis
+:no:meiws is_ews fem
+
+:le:*ba/al
+:wd:*ba/al indecl masc sg
+
+:le:*ui(o/s
+:no:*ui( os_h_on masc sg suff_acc
+
+:le:u(dro/meli
+:no:u(dro-meli^ t_tos,neut
+
+:le:*)iwdae/
+:wd:*)iwdae/ indecl masc sg pers_name
+
+:le:*sh/m
+:wd:*sh/m indecl masc sg pers_name
+
+:le:*la/ban
+:wd:*la/ban indecl masc sg pers_name
+
+:le:*gabrih/l
+:wd:*gabrih/l indecl masc sg pers_name
+
+:le:*)abennh/r
+:wd:*)abennh/r indecl masc sg pers_name
+
+:le:*)esqh/r
+:wd:*)esqh/r indecl fem sg pers_name
+
+:le:a)name/son
+:wd:a)name/son adverb
+
+:le:*)ihou/
+:wd:*)ihou/ indecl masc sg pers_name
+:wd:*)iou/ indecl masc sg pers_name
+
+:le:*)elisa/bet
+:wd:*)elisa/bet indecl fem sg pers_name
+
+:le:*(roubh/n
+:wd:*(roubh/n indecl masc sg pers_name
+
+:le:*)edw/m
+:wd:*)edw/m indecl masc sg
+
+:le:katapo/tion
+:no:katapoti os_ou neut
+
+:le:*)ama/n
+:wd:*)ama/n indecl masc sg pers_name
+:no:*)ama n_nos stem_acc masc sg pers_name
+
+:le:*)ismah/l
+:wd:*)ismah/l indecl masc sg pers_name
+
+:le:*)asa/f
+:wd:*)asa/f indecl masc sg pers_name
+
+:le:*sedra/x
+:wd:*sedra/x indecl masc sg pers_name
+
+:le:*eu)/a
+:wd:*eu)/a h_hs fem nom voc sg pers_name
+:wd:*eu)/an h_hs fem acc sg pers_name
+:wd:*eu)/as h_hs fem gen sg pers_name
+:wd:*eu)/a| h_hs fem dat sg pers_name
+
+:le:*)asa/
+:wd:*)asa/ indecl masc sg pers_name
+
+:le:ai(morroi/+s
+:no:ai(morroi+ s_dos fem stem_acc
+
+:le:*)iwra/m
+:wd:*)iwra/m indecl masc sg pers_name
+
+:le:*kala/siris
+:no:*kalasir is_idos masc sg pers_name
+
+:le:*kori/skos
+:no:*korisk os_ou stem_acc masc sg pers_name
+
+:le:kaqaperei/
+:wd:kaqaperei/ conj
+
+:le:*madia/m
+:wd:*madia/m indecl masc sg
+
+:le:a)dh/n
+:no:a)d hn_enos suff_acc masc fem
+
+:le:h(mi/alfa
+:wd:h(mi/alfa indecl neut sg
+
+:le:*xa/m
+:wd:*xa/m indecl masc sg
+
+:le:*zaboulw/n
+:wd:*zaboulw/n indecl masc sg
+
+:le:e)piplei=ston
+:wd:e)piplei=ston adverb
+
+:le:*nabona/ssaros
+:no:*nabonassar os_ou masc sg pers_name
+
+:le:*nauh=
+:wd:*nauh= indecl masc sg pers_name
+
+:le:*)/axaz
+:wd:*)/axaz indecl masc sg pers_name
+
+:le:*)assou/r
+:wd:*)assou/r indecl masc fem sg
