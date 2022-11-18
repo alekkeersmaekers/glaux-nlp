@@ -491,7 +491,7 @@ class Tagger:
                         second_prediction = tag_probs[1]
                         second_tag = dict(second_prediction[0])
                     output+=('{0:.3f}'.format(top_prediction[1])+'&nbsp;&nbsp;&nbsp;&nbsp;'+'<b><font style="'+self.color_by_prob(top_prediction[1])+'">'+word+'</font></b>'+'&nbsp;&nbsp;&nbsp;&nbsp;'+str(word in self.lexicon)+'&nbsp;&nbsp;&nbsp;&nbsp;'+str(tag)+'&nbsp;&nbsp;&nbsp;&nbsp;'+str(second_tag)+'<br>')
-        IPython.display.HTML(output)
+        return output
 
     def color_by_prob(self,prob):
         green = 200*prob
