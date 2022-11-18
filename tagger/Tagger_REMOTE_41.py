@@ -10,10 +10,6 @@ import re
 from transformers import AdamW, ElectraTokenizerFast, ElectraForTokenClassification
 from tokenization.Tokenization import fix_accents
 import unicodedata as ud
-from lexicon.WordListExtractor import WordListExtractor
-from lexicon.MorpheusProcessor import MorpheusProcessor
-
-from IPython.display import Markdown, display
 
 class Tagger:
 
@@ -238,7 +234,7 @@ class Tagger:
                 try:
                     prob_attr = preds[feat[0]][word_no][feat[1]]
                 except KeyError:
-                    print('Feature not found (probably mismatch with lexicon): '+feat[0]+' '+feat[1])
+                    print(feat[0]+' '+feat[1])
                 except IndexError:
                     print(word_no)
                     print(len(preds[feat[0]]))
@@ -306,22 +302,7 @@ class Tagger:
                 tags.append(tag)
                 lexicon[form] = tags
         return lexicon
-    
-    def trim_lexicon(self):
-        # Removes unnecessary information
-        lexicon_new = {}
-        for form, tags in self.lexicon.items():
-            new_tags = []
-            for tag in tags:
-                new_tag = []
-                for feature in tag:
-                    if feature[0] in self.feature_dict:
-                        new_tag.append(feature)
-                new_tag = tuple(new_tag)
-                new_tags.append(new_tag)
-            lexicon_new[form] = new_tags
-        self.lexicon = lexicon_new           
-    
+
     def add_training_data_to_lexicon(self):
         for sent in self.training_data:
             for line in sent.split("\n"):
@@ -407,7 +388,7 @@ class Tagger:
             possible_tags.append(tag)
         return possible_tags
     
-    def string_to_tokens(self,string):
+    def tag_string(self, string):
         string = re.sub(r'([\.,])',r' \1',string)
         string = re.sub(r'[᾽\'ʼ\\u0313´]', '’',string);
         string = re.sub(r'[‑—]', ' — ',string);
@@ -422,10 +403,6 @@ class Tagger:
         string = re.sub(r'^ ', '',string);
         string = re.sub(r' $', '',string);
         tokens_str = string.split(' ')
-        return tokens_str
-    
-    def tag_string(self, string):
-        tokens_str = self.string_to_tokens(string)
         tokens = []
         current_sent = []
         new_sent = False
@@ -468,8 +445,8 @@ class Tagger:
                     wid = wids[sent_id][word_id]
                     word_no += 1
                     possible_tags = self.possible_tags
-                    if word in self.lexicon:
-                        possible_tags = self.lexicon[word]
+                    #if word in self.lexicon:
+                    #    possible_tags = self.lexicon[word]
                     tag_probs = self.calc_tag_probs(possible_tags,all_preds,word_no)
                     top_prediction = tag_probs[0]
                     tag = dict(top_prediction[0])
@@ -478,8 +455,7 @@ class Tagger:
                         second_prediction = tag_probs[1]
                         second_tag = dict(second_prediction[0])
                     output+=(str(top_prediction[1])+'\t'+'<font style="'+self.color_by_prob(top_prediction[1])+'">'+word+"</font>\t"+str(tag)+"\t"+str(second_tag)+"\n")
-        display(Markdown(output))
-        #print(output)
+        print(output)
 
     def color_by_prob(self,prob):
         green = 255*prob
@@ -487,14 +463,14 @@ class Tagger:
         return "color: rgb("+f'{red:.0f}'+","+f'{green:.0f}'+",0)";
 
 def main():
-    mode = 'tag_sentence'
+    mode = 'test'
     tagger = Tagger(transformer_model='mercelisw/electra-grc-2',
                     training_data='files/greek/Data_Training.txt', include_upos=False,
                     include_xpos=True, model_dir='models')
     tagger.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
     tagger.possible_tags = tagger.read_possible_tags('files/greek/PossibleTags.txt')
-    #tagger.lexicon = tagger.read_lexicon('files/greek/Lexicon.txt')
-    #tagger.add_training_data_to_lexicon()
+    tagger.lexicon = tagger.read_lexicon('files/greek/Lexicon.txt')
+    tagger.add_training_data_to_lexicon()
     tagger.test_reader = CONLLReader('files/greek/Data_Test_small.txt')
     tagger.test_data = tagger.test_reader.parse_conll()
     tagger.tokenizer = ElectraTokenizerFast.from_pretrained(
@@ -516,19 +492,7 @@ def main():
         tagger.tag_data(wids=wids, tokens=tokens, preds=all_preds,
                         output_data='files/greek/tagged_tmp.txt')
     else:
-        s = 'μῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος οὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε, πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν ἡρώων, αὐτοὺς δὲ ἑλώρια τεῦχε κύνεσσιν οἰωνοῖσί τε πᾶσι, Διὸς δ᾽ ἐτελείετο βουλή, ἐξ οὗ δὴ τὰ πρῶτα διαστήτην ἐρίσαντε Ἀτρεΐδης τε ἄναξ ἀνδρῶν καὶ δῖος Ἀχιλλεύς.'
-        tokens = tagger.string_to_tokens(s)
-        wle = WordListExtractor()
-        tokens_beta = wle.convert_beta_code(tokens, True)
-        mp = MorpheusProcessor()
-        morpheus_output = mp.send_word_list(tokens_beta)
-        tagger.lexicon = mp.convert_morpheus_output(morpheus_output, True)
-        print(next(iter(tagger.lexicon.items())))
-        tagger.trim_lexicon()
-        print(next(iter(tagger.lexicon.items())))
-        #tagger.lexicon = tagger.read_lexicon('files/greek/Lexicon.txt')
-        #print(next(iter(tagger.lexicon.items())))
-        tagger.tag_string(s)
+        tagger.tag_string('μῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος οὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε, πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν ἡρώων, αὐτοὺς δὲ ἑλώρια τεῦχε κύνεσσιν οἰωνοῖσί τε πᾶσι, Διὸς δ᾽ ἐτελείετο βουλή, ἐξ οὗ δὴ τὰ πρῶτα διαστήτην ἐρίσαντε Ἀτρεΐδης τε ἄναξ ἀνδρῶν καὶ δῖος Ἀχιλλεύς.')
 
 if __name__ == '__main__':
     main()
