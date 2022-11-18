@@ -10,7 +10,7 @@ def fix_accents(regularized: str):
         return regularized.replace('\u0300', '\u0301')
 
     # Match the whole word, containing acutus/perispomenus up until the second acutus in group 1, and the rest, excluding the acutus in group 2.
-    double_acutus_pattern = '(\b[^\u0301\u0342]*[\u0301\u0342][^\u0301\u0342]*)\u0301([^\u0301\u0342]*)'
+    double_acutus_pattern = '([^\u0301\u0342]*[\u0301\u0342][^\u0301\u0342]*)\u0301([^\u0301\u0342]*)'
     m = re.match(double_acutus_pattern, regularized)
 
     if m:

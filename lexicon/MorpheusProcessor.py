@@ -494,6 +494,7 @@ class MorpheusProcessor:
                         
                         form_uni = beta_code.beta_code_to_greek(form)
                         form_uni = unicodedata.normalize("NFKD",form_uni)
+                        form_uni = re.sub('\'','’',form_uni)
                         lemma_uni = beta_code.beta_code_to_greek(lemma)
                         lemma_uni = unicodedata.normalize("NFKD",lemma_uni)
                         
@@ -592,6 +593,7 @@ class MorpheusProcessor:
                         
                         form_uni = beta_code.beta_code_to_greek(form)
                         form_uni = unicodedata.normalize("NFKD",form_uni)
+                        form_uni = re.sub('\'','’',form_uni)
                         lemma_uni = beta_code.beta_code_to_greek(lemma)
                         lemma_uni = unicodedata.normalize("NFKD",lemma_uni)
                         
@@ -651,6 +653,7 @@ class MorpheusProcessor:
                         
                         form_uni = beta_code.beta_code_to_greek(form)
                         form_uni = unicodedata.normalize("NFKD",form_uni)
+                        form_uni = re.sub('\'','’',form_uni)
                         lemma_uni = beta_code.beta_code_to_greek(lemma)
                         lemma_uni = unicodedata.normalize("NFKD",lemma_uni)
                         
@@ -760,6 +763,7 @@ class MorpheusProcessor:
                         
                         form_uni = beta_code.beta_code_to_greek(form)
                         form_uni = unicodedata.normalize("NFKD",form_uni)
+                        form_uni = re.sub('\'','’',form_uni)
                         lemma_uni = beta_code.beta_code_to_greek(lemma)
                         lemma_uni = unicodedata.normalize("NFKD",lemma_uni)
                         
@@ -814,6 +818,7 @@ class MorpheusProcessor:
                         
                         form_uni = beta_code.beta_code_to_greek(form)
                         form_uni = unicodedata.normalize("NFKD",form_uni)
+                        form_uni = re.sub('\'','’',form_uni)
                         lemma_uni = beta_code.beta_code_to_greek(lemma)
                         lemma_uni = unicodedata.normalize("NFKD",lemma_uni)
                         

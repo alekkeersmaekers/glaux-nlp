@@ -7,13 +7,11 @@ import numpy as np
 import logging
 import torch
 import re
-from transformers import AdamW, ElectraTokenizerFast, ElectraForTokenClassification
+from transformers import AdamW, ElectraForTokenClassification
 from tokenization.Tokenization import fix_accents
 import unicodedata as ud
-from lexicon.WordListExtractor import WordListExtractor
-from lexicon.MorpheusProcessor import MorpheusProcessor
 
-from IPython.display import Markdown, display
+import IPython
 
 class Tagger:
 
@@ -247,9 +245,14 @@ class Tagger:
         tag_probs = sorted(tag_probs.items(), reverse=True, key=lambda x: x[1])
         return tag_probs
 
-    def tag_data(self, wids, tokens, preds, output_data):
+    def tag_data(self, wids, tokens, preds, output_data, output_format='CONLL'):
         # Combines predictions, restricts outputs with lexicon and writes the output to CONLL file
         with open(output_data, 'w', encoding='UTF-8') as outfile:
+            if output_format == 'tab':
+                outfile.write("id\ttoken\tprobability\tpossibilities\tin_lexicon")
+                for feat in self.feature_dict:
+                    outfile.write("\t"+feat)
+                outfile.write('\n')
             word_no = -1
             for sent_id, sent in enumerate(tokens):
                 if sent_id % 100 == 0:
@@ -269,16 +272,27 @@ class Tagger:
                         upos = tag["UPOS"]
                     if self.include_xpos:
                         xpos = tag["XPOS"]
-                    morph = ""
-                    for feat, val in tag.items():
-                        if feat != 'UPOS' and feat != 'XPOS' and val != '_':
-                            morph += feat + "=" + val + "|"
-                    if morph == "":
-                        morph = '_'
-                    else:
-                        morph = morph[:-1]
-                    outfile.write(wid + "\t" + word + "\t_\t" + upos + "\t" + xpos + "\t" + morph + "\t_\t_\t_\t_\n")
-                outfile.write('\n')
+                    if output_format == 'CONLL':
+                        morph = ""
+                        for feat, val in tag.items():
+                            if feat != 'UPOS' and feat != 'XPOS' and val != '_':
+                                morph += feat + "=" + val + "|"
+                        if morph == "":
+                            morph = '_'
+                        else:
+                            morph = morph[:-1]
+                        outfile.write(wid + "\t" + word + "\t_\t" + upos + "\t" + xpos + "\t" + morph + "\t_\t_\t_\t_\n")
+                    elif output_format == 'tab':
+                        outfile.write(wid +"\t" + word + "\t" + str(top_prediction[1]) +'\t' + str(len(possible_tags)) + "\t" + str(word in self.lexicon))
+                        
+                        for feat in self.feature_dict:
+                            val = '_'
+                            if feat in tag:
+                                val = tag[feat]
+                            outfile.write("\t"+val)
+                        outfile.write('\n')
+                if output_format == 'CONLL':
+                    outfile.write('\n')
 
     def read_lexicon(self, file):
         lexicon = {}
@@ -368,7 +382,7 @@ class Tagger:
         labels = self.encode_tags(tags, encodings, tag2id, print_output=False)
         encodings.pop("offset_mapping")
         dataset = AGPoSDataset(encodings, labels, wids)
-        loader = DataLoader(dataset, batch_size=16, shuffle=True)
+        loader = DataLoader(dataset, batch_size=16, shuffle=False)
         model = ElectraForTokenClassification.from_pretrained(model_dir).to(self.device)
         preds_total = []
         with torch.no_grad():
@@ -383,8 +397,8 @@ class Tagger:
                             softmaxed_predictions = torch.nn.functional.softmax(outputs[1][batch_idx][label_idx],
                                                                                 -1).tolist()
                             preds = {}
-                            for pred in softmaxed_predictions:
-                                preds[id2tag[softmaxed_predictions.index(pred)]] = pred
+                            for index, pred in enumerate(softmaxed_predictions):
+                                preds[id2tag[index]] = pred
                             preds_total.append(preds)
         return preds_total
 
@@ -476,58 +490,10 @@ class Tagger:
                     if len(tag_probs)>1:
                         second_prediction = tag_probs[1]
                         second_tag = dict(second_prediction[0])
-                    output+=(str(top_prediction[1])+'\t'+'<font style="'+self.color_by_prob(top_prediction[1])+'">'+word+"</font>\t"+str(tag)+"\t"+str(second_tag)+"\n")
-        display(Markdown(output))
-        #print(output)
+                    output+=('{0:.3f}'.format(top_prediction[1])+'&nbsp;&nbsp;&nbsp;&nbsp;'+'<b><font style="'+self.color_by_prob(top_prediction[1])+'">'+word+'</font></b>'+'&nbsp;&nbsp;&nbsp;&nbsp;'+str(word in self.lexicon)+'&nbsp;&nbsp;&nbsp;&nbsp;'+str(tag)+'&nbsp;&nbsp;&nbsp;&nbsp;'+str(second_tag)+'<br>')
+        IPython.display.HTML(output)
 
     def color_by_prob(self,prob):
-        green = 255*prob
-        red = 255*(1-prob)
+        green = 200*prob
+        red = 200*(1-prob)
         return "color: rgb("+f'{red:.0f}'+","+f'{green:.0f}'+",0)";
-
-def main():
-    mode = 'tag_sentence'
-    tagger = Tagger(transformer_model='mercelisw/electra-grc-2',
-                    training_data='files/greek/Data_Training.txt', include_upos=False,
-                    include_xpos=True, model_dir='models')
-    tagger.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    tagger.possible_tags = tagger.read_possible_tags('files/greek/PossibleTags.txt')
-    #tagger.lexicon = tagger.read_lexicon('files/greek/Lexicon.txt')
-    #tagger.add_training_data_to_lexicon()
-    tagger.test_reader = CONLLReader('files/greek/Data_Test_small.txt')
-    tagger.test_data = tagger.test_reader.parse_conll()
-    tagger.tokenizer = ElectraTokenizerFast.from_pretrained(
-        'mercelisw/electra-grc-2', do_lower_case=False, strip_accents=False,
-        model_max_length=512)
-    print("Read tagger data")
-    if mode == 'train':
-        for feat in tagger.feature_dict:
-            wids, tokens, tags = tagger.read_tags(feat, tagger.training_data)
-            tagger.train_model(wids, tokens, tags, output_model=f"{tagger.model_dir}/{feat}")
-    elif mode == 'test':
-        wids, tokens = tagger.read_tags(data=tagger.test_data, feature=None, return_tags=False)
-        all_preds = {}
-        for feat in tagger.feature_dict:
-            tags = tagger.read_tags(feat, tagger.test_data, return_words=False)
-            preds = tagger.predict_feature(f"{tagger.model_dir}/{feat}", wids, tokens, tags)
-            all_preds[feat] = preds
-            print("Predicted "+feat)
-        tagger.tag_data(wids=wids, tokens=tokens, preds=all_preds,
-                        output_data='files/greek/tagged_tmp.txt')
-    else:
-        s = 'μῆνιν ἄειδε θεὰ Πηληϊάδεω Ἀχιλῆος οὐλομένην, ἣ μυρί᾽ Ἀχαιοῖς ἄλγε᾽ ἔθηκε, πολλὰς δ᾽ ἰφθίμους ψυχὰς Ἄϊδι προΐαψεν ἡρώων, αὐτοὺς δὲ ἑλώρια τεῦχε κύνεσσιν οἰωνοῖσί τε πᾶσι, Διὸς δ᾽ ἐτελείετο βουλή, ἐξ οὗ δὴ τὰ πρῶτα διαστήτην ἐρίσαντε Ἀτρεΐδης τε ἄναξ ἀνδρῶν καὶ δῖος Ἀχιλλεύς.'
-        tokens = tagger.string_to_tokens(s)
-        wle = WordListExtractor()
-        tokens_beta = wle.convert_beta_code(tokens, True)
-        mp = MorpheusProcessor()
-        morpheus_output = mp.send_word_list(tokens_beta)
-        tagger.lexicon = mp.convert_morpheus_output(morpheus_output, True)
-        print(next(iter(tagger.lexicon.items())))
-        tagger.trim_lexicon()
-        print(next(iter(tagger.lexicon.items())))
-        #tagger.lexicon = tagger.read_lexicon('files/greek/Lexicon.txt')
-        #print(next(iter(tagger.lexicon.items())))
-        tagger.tag_string(s)
-
-if __name__ == '__main__':
-    main()
