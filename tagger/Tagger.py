@@ -261,7 +261,6 @@ class Tagger:
                     if word in self.lexicon:
                         possible_tags = self.lexicon[word]
                     tag_probs = self.calc_tag_probs(possible_tags,preds,word_no)
-
                     top_prediction = tag_probs[0]
                     tag = dict(top_prediction[0])
                     upos = "_"
@@ -498,7 +497,7 @@ def main():
     tagger.test_reader = CONLLReader('files/greek/Data_Test_small.txt')
     tagger.test_data = tagger.test_reader.parse_conll()
     tagger.tokenizer = ElectraTokenizerFast.from_pretrained(
-        'files/greek/electra-grc-2', do_lower_case=False, strip_accents=False,
+        'mercelisw/electra-grc-2', do_lower_case=False, strip_accents=False,
         model_max_length=512)
     print("Read tagger data")
     if mode == 'train':
