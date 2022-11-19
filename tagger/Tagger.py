@@ -11,8 +11,6 @@ from transformers import AdamW, ElectraForTokenClassification
 from tokenization.Tokenization import fix_accents
 import unicodedata as ud
 
-import IPython
-
 class Tagger:
 
     def encode_tags(self, tags, encodings, tag2id, print_output):
@@ -321,15 +319,16 @@ class Tagger:
         return lexicon
     
     def trim_lexicon(self):
-        # Removes unnecessary information
+        # Removes unnecessary information and sorts the tag in the order of the feature dict
         lexicon_new = {}
         for form, tags in self.lexicon.items():
             new_tags = []
             for tag in tags:
                 new_tag = []
-                for feature in tag:
-                    if feature[0] in self.feature_dict:
-                        new_tag.append(feature)
+                for feat in self.feature_dict:
+                    for tag_feat in tag:
+                        if tag_feat[0] == feat:
+                            new_tag.append(tag_feat)
                 new_tag = tuple(new_tag)
                 new_tags.append(new_tag)
             lexicon_new[form] = new_tags
