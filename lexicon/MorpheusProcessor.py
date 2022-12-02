@@ -31,7 +31,7 @@ class MorpheusProcessor:
                 base = 'ei)mi/'
             elif base == 'gei/nomai':
                 base = 'gi/gnomai'
-            elif re.match('.*e\\)?rw=',base):
+            elif re.match('.*e\\)?rw=$',base):
                 base = re.sub('e\\)?rw=','le/gw',base)
             elif base == 'i)sxne/omai' and not splittedPrefix[len(splittedPrefix)-1] == 'u(po/':
                 base = 'e)/xw'
@@ -54,67 +54,67 @@ class MorpheusProcessor:
             for i in range(len(splittedPrefix)):
                 splittedPrefix[i] = re.sub('[/=\\\\]', '',splittedPrefix[i])
             for i in range(len(splittedPrefix)-1):
-                if re.match('.*[aehiouw]',splittedPrefix[i]) and not splittedPrefix[i] == 'peri' and not splittedPrefix[i] == 'pro' and not splittedPrefix[i] == 'a)mfi' and re.match('[aehiouw].*',splittedPrefix[i+1]):
+                if re.match('.*[aehiouw]$',splittedPrefix[i]) and not splittedPrefix[i] == 'peri' and not splittedPrefix[i] == 'pro' and not splittedPrefix[i] == 'a)mfi' and re.match('^[aehiouw].*',splittedPrefix[i+1]):
                     splittedPrefix[i] = re.sub('[aehiouw]$','',splittedPrefix[i])
-                elif re.match('.*n',splittedPrefix[i]) and re.match('k.*',splittedPrefix[i+1]):
+                elif re.match('.*n$',splittedPrefix[i]) and re.match('^k.*',splittedPrefix[i+1]):
                     splittedPrefix[i] = re.sub('n$','g',splittedPrefix[i])
-                elif re.match('.*n',splittedPrefix[i]) and re.match('p.*',splittedPrefix[i+1]):
+                elif re.match('.*n$',splittedPrefix[i]) and re.match('^p.*',splittedPrefix[i+1]):
                     splittedPrefix[i] = re.sub('n$','m',splittedPrefix[i])
-                elif re.match('.*k',splittedPrefix[i]) and re.match('[aehiouw].*',splittedPrefix[i+1]):
+                elif re.match('.*k$',splittedPrefix[i]) and re.match('^[aehiouw].*',splittedPrefix[i+1]):
                     splittedPrefix[i]  =re.sub('k$','c',splittedPrefix[i])
-                if re.match('.*[tp]',splittedPrefix[i]) and re.match('u\\(.*',splittedPrefix[i+1]):
+                if re.match('.*[tp]$',splittedPrefix[i]) and re.match('^u\\(.*',splittedPrefix[i+1]):
                     splittedPrefix[i] = re.sub('t$','q',splittedPrefix[i])
                     splittedPrefix[i] = re.sub('p$','f',splittedPrefix[i])
             if len(splittedPrefix) >1:
                 for i in range(1,len(splittedPrefix)):
                     splittedPrefix[i] = re.sub('[\\(\\)]','',splittedPrefix[i])
             lastPrefix = splittedPrefix[len(splittedPrefix)-1]
-            if re.match('[aehiouw]+\\(.*',base):
+            if re.match('^[aehiouw]+\\(.*',base):
                 base = re.sub('\\(','',base)
-                if re.match('(ka|me)ta',lastPrefix):
+                if re.match('^(ka|me)ta$',lastPrefix):
                     lastPrefix = re.sub('ta$','q',lastPrefix)
-                elif re.match('a(\\))?po',lastPrefix) or re.match('u(\\()?po',lastPrefix):
+                elif re.match('^a(\\))?po$',lastPrefix) or re.match('^u(\\()?po$',lastPrefix):
                     lastPrefix = re.sub('po$','f',lastPrefix)
-                elif re.match('(dia|para)',lastPrefix):
+                elif re.match('^(dia|para)$',lastPrefix):
                     lastPrefix = re.sub('a$','',lastPrefix)
-                elif re.match('e(\\))?pi',lastPrefix):
+                elif re.match('^e(\\))?pi$',lastPrefix):
                     lastPrefix = re.sub('pi$','f',lastPrefix)
-                elif re.match('e(\\))?k',lastPrefix):
+                elif re.match('^e(\\))?k$',lastPrefix):
                     lastPrefix = re.sub('k$','c',lastPrefix)
-                elif re.match('a(\\))?na',lastPrefix) or re.match('para',lastPrefix):
+                elif re.match('^a(\\))?na$',lastPrefix) or re.match('^para$',lastPrefix):
                     lastPrefix = re.sub('a$','',lastPrefix)
-                elif re.match('a(\\))?nti',lastPrefix):
+                elif re.match('^a(\\))?nti$',lastPrefix):
                     lastPrefix = re.sub('ti$','q',lastPrefix)
-            elif re.match('[aehiouw]+\\).*',base):
+            elif re.match('^[aehiouw]+\\).*',base):
                 base = re.sub('\\)','',base)
-                if re.match('(ka|me)ta',lastPrefix):
+                if re.match('^(ka|me)ta$',lastPrefix):
                     lastPrefix = re.sub('ta$','t',lastPrefix)
-                elif re.match('a(\\))?po',lastPrefix) or re.match('u(\\()?po',lastPrefix):
+                elif re.match('^a(\\))?po$',lastPrefix) or re.match('^u(\\()?po$',lastPrefix):
                     lastPrefix = re.sub('po$','p',lastPrefix)
-                elif re.match('(dia|para)',lastPrefix):
+                elif re.match('^(dia|para)$',lastPrefix):
                     lastPrefix = re.sub('a$','',lastPrefix)
-                elif re.match('e(\\))?pi',lastPrefix):
+                elif re.match('^e(\\))?pi$',lastPrefix):
                     lastPrefix = re.sub('pi$','p',lastPrefix)
-                elif re.match('e(\\))?k',lastPrefix):
+                elif re.match('^e(\\))?k$',lastPrefix):
                     lastPrefix = re.sub('k$','c',lastPrefix)
-                elif re.match('a(\\))?na',lastPrefix):
+                elif re.match('^a(\\))?na$',lastPrefix):
                     lastPrefix = re.sub('a$','',lastPrefix)
-                elif re.match('a(\\))?nti',lastPrefix):
+                elif re.match('^a(\\))?nti$',lastPrefix):
                     lastPrefix = re.sub('ti$','t',lastPrefix)
             else:
                 base = re.sub('\\(','',base)
-                if re.match('(sun|e(\\))?n)',lastPrefix):
-                    if re.match('[bpfym].*',base):
+                if re.match('^(sun|e(\\))?n)$',lastPrefix):
+                    if re.match('^[bpfym].*',base):
                         lastPrefix = re.sub('n$','m',lastPrefix)
-                    elif re.match('[gkxc].*',base):
+                    elif re.match('^[gkxc].*',base):
                         lastPrefix = re.sub('n$','g',lastPrefix)
-                    elif re.match('l.*',base):
+                    elif re.match('^l.*',base):
                         lastPrefix = re.sub('n$','l',lastPrefix)
-                    elif re.match('r.*',base) and re.match('sun',lastPrefix):
+                    elif re.match('^r.*',base) and re.match('^sun$',lastPrefix):
                         lastPrefix = re.sub('n$','r',lastPrefix)
-                    elif re.match('s.*',base) and re.match('sun',lastPrefix):
+                    elif re.match('^s.*',base) and re.match('^sun$',lastPrefix):
                         lastPrefix = re.sub('n$','',lastPrefix)
-                if(re.match('.*[aehiouw]',lastPrefix) and re.match('r.*',base)):
+                if(re.match('.*[aehiouw]$',lastPrefix) and re.match('^r.*',base)):
                     base = re.sub('^r','rr',base)
             splittedPrefix[len(splittedPrefix)-1] = lastPrefix
             if len(splittedPrefix)>0:
@@ -149,66 +149,66 @@ class MorpheusProcessor:
             return 'polu/s'
         elif lemma == 'ei)=don':
             return 'o(ra/w'
-        elif re.match('.*(kat|met|a\\)?nt)ei=don',lemma):
+        elif re.match('.*(kat|met|a\\)?nt)ei=don$',lemma):
             return re.sub('tei=don', 'qora/w',lemma)
-        elif re.match('.*(a\\)?p|e\\)?p)ei=don',lemma):
+        elif re.match('.*(a\\)?p|e\\)?p)ei=don$',lemma):
             return re.sub('pei=don', 'fora/w',lemma)
-        elif re.match('.*ei=don',lemma):
+        elif re.match('.*ei=don$',lemma):
             return re.sub('ei=don', 'ora/w',lemma)
         elif lemma == 'ei)=mi':
             return 'e)/rxomai'
-        elif re.match('.*qnh/skw',lemma):
+        elif re.match('.*qnh/skw$',lemma):
             return re.sub('qnh/skw', 'qnh/|skw',lemma)
         elif lemma == 'a)mei/nwn' or lemma == 'a)/ristos' or lemma == 'belti/wn' or lemma == 'be/ltistos':
             return 'a)gaqo/s'
         elif lemma == 'sautou=':
             return 'seautou='
-        elif re.match('.*per',form) and not re.match('.*per',lemma):
+        elif re.match('.*per$',form) and not re.match('.*per$',lemma):
             return lemma + 'per'
         elif lemma == 'pou/':
             return 'pou'
         elif lemma == 'e)rw=':
             return 'le/gw'
-        elif re.match('.*sw/zw',lemma):
+        elif re.match('.*sw/zw$',lemma):
             return re.sub('sw/zw', 'sw/|zw',lemma)
-        elif re.match('.*eimi',lemma) and digit == '2':
+        elif re.match('.*eimi$',lemma) and digit == '2':
             lemma_no_accent = re.sub('/','',lemma)
             return re.sub('eimi', 'e/rxomai',lemma_no_accent)
-        elif re.match('.*(e\\)?/c|ei\\)?/s|peri/|ka/t|a\\)/?n)eimi',lemma):
+        elif re.match('.*(e\\)?/c|ei\\)?/s|peri/|ka/t|a\\)/?n)eimi$',lemma):
             lemma_no_accent = re.sub('/','',lemma)
             return re.sub('eimi', 'e/rxomai',lemma_no_accent)
         elif lemma == 'e)la/sswn' or lemma == 'e)la/xistos':
             return 'e)laxu/s'
         elif lemma == 'ka)n':
             return 'ka)/n'
-        elif re.match('.*limpa/nw',lemma):
+        elif re.match('.*limpa/nw$',lemma):
             return re.sub('limpa/nw', 'lei/pw',lemma)
-        elif re.match('.*esth/cw',lemma):
+        elif re.match('.*esth/cw$',lemma):
             return re.sub('esth/cw', 'i/sthmi',lemma)
         elif lemma == 'i)xqu/s':
             return 'i)xqu=s'
         elif lemma == '*)aqh=nai':
-            if re.match('\\*\\)aqh/nhsin?',form):
+            if re.match('^\\*\\)aqh/nhsin?$',form):
                 return '*)aqh/nhsi'
-            elif re.match('\\*\\)aqh/naze/?',form):
+            elif re.match('^\\*\\)aqh/naze/?$',form):
                 return '*)aqh/naze'
         elif lemma == 'xei/rwn' or lemma == 'xei/ristos':
             return 'kako/s'
-        elif re.match('.*w/xato',lemma):
+        elif re.match('.*w/xato$',lemma):
             return re.sub('w/xato', 'e/xw',lemma)
         elif lemma == 'ai)/rw':
             return 'a)ei/rw'
-        elif re.match('.*(peri|pro|a\\)?mfi|pros|pro)ei=pon',lemma):
+        elif re.match('.*(peri|pro|a\\)?mfi|pros|pro)ei=pon$',lemma):
             return re.sub('ei=pon', 'le/gw',lemma)
-        elif re.match('.*a\\)?pei=pon',lemma):
+        elif re.match('.*a\\)?pei=pon$',lemma):
             return re.sub('ei=pon', 'ole/gw',lemma)
-        elif re.match('.*(kat|met|di|par|a\\)?n)ei=pon',lemma):
+        elif re.match('.*(kat|met|di|par|a\\)?n)ei=pon$',lemma):
             return re.sub('ei=pon', 'ale/gw',lemma)
-        elif re.match('.*(e\\)?p|a\\)?nt)ei=pon',lemma):
+        elif re.match('.*(e\\)?p|a\\)?nt)ei=pon$',lemma):
             return re.sub('ei=pon', 'ile/gw',lemma)
-        elif re.match('.*e\\)?cei=pon',lemma):
+        elif re.match('.*e\\)?cei=pon$',lemma):
             return re.sub('cei=pon', 'kle/gw',lemma)
-        elif re.match('.*(sun|e\\)n)ei=pon',lemma):
+        elif re.match('.*(sun|e\\)n)ei=pon$',lemma):
             return re.sub('nei=pon', 'lle/gw',lemma) 
         elif lemma == 'pantaxh=':
             return 'pantaxh=|'
@@ -222,27 +222,27 @@ class MorpheusProcessor:
             return 'gh='
         elif lemma == 'toiga/r' and form == 'toigarou=n':
             return 'toigarou=n'
-        elif re.match('.*ske/ptomai',lemma):
+        elif re.match('.*ske/ptomai$',lemma):
             return re.sub('ske/ptomai', 'skope/w',lemma)
         elif lemma == 'ou(twsi/':
             return 'ou(/tws'
-        elif re.match('.*mimnh/skw',lemma):
+        elif re.match('.*mimnh/skw$',lemma):
             return re.sub('mimnh/skw', 'mimnh/|skw',lemma)
-        elif re.match('.*pi/tnw',lemma):
+        elif re.match('.*pi/tnw$',lemma):
             return re.sub('pi/tnw', 'pi/ptw',lemma)
         elif lemma == 'e)/qw':
             return 'ei)/wqa'
         elif lemma == 'kh=r':
             return 'ke/ar'
-        elif lemma == 'w(/sper' and re.match('w\\(sperei[/\\\\]',form):
+        elif lemma == 'w(/sper' and re.match('^w\\(sperei[/\\\\]$',form):
             return 'w(sperei/'
         elif form == 'e)a/nte' and lemma == 'e)a/n':
             return 'e)a/nte'
         elif lemma == 'e)xqe/s':
             return 'xqe/s'
-        elif re.match('.*allacei/w',lemma):
+        elif re.match('.*allacei/w$',lemma):
             return re.sub('allacei/w', 'alla/ssw',lemma)
-        elif re.match('.*mi/gnumi',lemma):
+        elif re.match('.*mi/gnumi$',lemma):
             return re.sub('mi/gnumi', 'mei/gnumi',lemma)
         elif lemma == 'filoneiki/a':
             return 'filoniki/a'
@@ -250,29 +250,29 @@ class MorpheusProcessor:
             return 'pro/sw'
         elif lemma == 'oi)ktei/rw':
             return 'oi)kti/rw'
-        elif re.match('.*gei/nomai',lemma):
+        elif re.match('.*gei/nomai$',lemma):
             return re.sub('gei/nomai', 'gi/gnomai',lemma)
-        elif lemma == 'au)qh/meros' and re.match('au\\)qhmero[/\\\\]n',form):
+        elif lemma == 'au)qh/meros' and re.match('^au\\)qhmero[/\\\\]n$',form):
             return 'au)qhmero/n'
         elif lemma == 'o)sfu/s':
             return 'o)sfu=s'
-        elif lemma == '*peiqw/' and not re.match('\\*.*',form):
+        elif lemma == '*peiqw/' and not re.match('^\\*.*',form):
             return 'peiqw/'
-        elif re.match('.*o/xwka',lemma):
+        elif re.match('.*o/xwka$',lemma):
             return re.sub('o/xwka', 'e/xw',lemma)
         elif lemma == '*mou=sai':
             return '*mou=sa'
-        elif re.match('.*(peri|pro|a\\)?mfi|pros|pro)ere/w',lemma):
+        elif re.match('.*(peri|pro|a\\)?mfi|pros|pro)ere/w$',lemma):
             return re.sub('ere/w', 'le/gw',lemma)
-        elif re.match('.*a\\)?pere/w',lemma):
+        elif re.match('.*a\\)?pere/w$',lemma):
             return re.sub('ere/w', 'ole/gw',lemma)
-        elif re.match('.*(kat|met|di|par|a\\)?n)ere/w',lemma):
+        elif re.match('.*(kat|met|di|par|a\\)?n)ere/w$',lemma):
             return re.sub('ere/w', 'ale/gw',lemma)
-        elif re.match('.*(e\\)?p|a\\)?nt)ere/w',lemma):
+        elif re.match('.*(e\\)?p|a\\)?nt)ere/w$',lemma):
             return re.sub('ere/w', 'ile/gw',lemma)
-        elif re.match('.*e\\)?cere/w',lemma):
+        elif re.match('.*e\\)?cere/w$',lemma):
             return re.sub('cere/w', 'kle/gw',lemma)
-        elif re.match('.*(sun|e\\)n)ere/w',lemma):
+        elif re.match('.*(sun|e\\)n)ere/w$',lemma):
             return re.sub('nere/w', 'lle/gw',lemma)
         elif lemma == 'grai/dion':
             return 'grai+/dion'
@@ -280,11 +280,11 @@ class MorpheusProcessor:
             return 'proi+/sthmi'
         elif lemma == 'prw/tistos':
             return 'prw=tos'
-        elif lemma == '*ma/gos' and not re.match('\\*.*',form):
+        elif lemma == '*ma/gos' and not re.match('^\\*.*',form):
             return 'ma/gos'
-        elif re.match('.*pi/plhmi',lemma):
+        elif re.match('.*pi/plhmi$',lemma):
             return re.sub('pi/plhmi', 'pi/mplhmi',lemma)
-        elif re.match('.*store/nnumi',lemma):
+        elif re.match('.*store/nnumi$',lemma):
             return re.sub('store/nnumi', 'sto/rnumi',lemma)
         return lemma
     
@@ -296,11 +296,11 @@ class MorpheusProcessor:
             splittedLine = line.split(' ')
             if len(splittedLine) == 3:
                 if splittedLine[0] == word:
-                    if re.match('noun.*',splittedLine[2]):
+                    if re.match('^noun.*',splittedLine[2]):
                         wordclass = 'noun'
-                    elif re.match('adj.*',splittedLine[2]) and not re.match('irreg_adj[13]',splittedLine[0]) and splittedLine[0] != 'art_adj':
+                    elif re.match('^adj.*',splittedLine[2]) and not re.match('^irreg_adj[13]$',splittedLine[0]) and splittedLine[0] != 'art_adj':
                         wordclass = 'adj'
-                    elif re.match('pp.*',splittedLine[2]):
+                    elif re.match('^pp.*',splittedLine[2]):
                         wordclass = 'verb'
         f.close()
         return wordclass
@@ -326,28 +326,28 @@ class MorpheusProcessor:
         ending = ''
         discardAnalysis = False
         for line in lines:
-            if re.match(':raw.*',line):
+            if re.match('^:raw.*',line):
                 form = re.sub(':raw[ ]+','',line)
                 form = re.sub('[’᾽]','\'',form)
                 form = re.sub(r'\\','/',form)
                 form = re.sub('([/=])(.*)/',r'\1\2',form)
                 form = re.sub('s1\'','s\'',form)
-            elif re.match(':lem.*',line):
+            elif re.match('^:lem.*',line):
                 lemma = re.sub(':lem[ ]+','',line)
                 lemma = self.regularize_lemma(lemma,form)
-            elif re.match(':prvb.*',line):
+            elif re.match('^:prvb.*',line):
                 prefix = re.sub(':prvb ','',line,1)
                 prefix = re.sub('\t.*','',prefix,1)
-            elif re.match(':aug1.*',line):
+            elif re.match('^:aug1.*',line):
                 augment = re.sub(':aug1 ','',line,1)
                 augment = re.sub('\t.*','',augment,1)
-            elif re.match(':stem.*',line):
+            elif re.match('^:stem.*',line):
                 stem = re.sub(':stem[ ]+', '',line.split('\t')[0])
-                if re.match('.*[ier](_)?',stem):
+                if re.match('.*[ier](_)?$',stem):
                     ier = True
                 else:
                     ier = False
-                if re.match(':stem.*(doric|aeolic|homeric|poetic).*',line) and not re.match('.*(ionic|attic).*',line) and not poetic:
+                if re.match('^:stem.*(doric|aeolic|homeric|poetic).*',line) and not re.match('.*(ionic|attic).*',line) and not poetic:
                     discardAnalysis = True
                 if re.match('.*irreg_superl.*',line):
                     superlative = True
@@ -357,7 +357,7 @@ class MorpheusProcessor:
                     comparative = True
                 else:
                     comparative = False
-            elif re.match(':end.*',line):
+            elif re.match('^:end.*',line):
                 ending = re.sub(':end ','',line,1)
                 ending = re.sub('\t.*', '',ending,1)
                 if re.match('.*(doric|aeolic|homeric|poetic).*',line) and not re.match('.*(ionic|attic).*',line) and not poetic:
@@ -366,7 +366,7 @@ class MorpheusProcessor:
                     discardAnalysis = False
                 if re.match('.*futperf.*(nom|voc|acc|gen|dat).*',line) or re.match('.*adverbial (comp|superl).*',line) or re.match('.*unaugmented.*',line):
                     discardAnalysis = True
-                if discardAnalysis==True and ier==True and (re.match('.*fem .* sg.*',line) or re.match('.*masc .* sg.*hs_ou',line)):
+                if discardAnalysis==True and ier==True and (re.match('.*fem .* sg.*',line) or re.match('.*masc .* sg.*hs_ou$',line)):
                     discardAnalysis = False
                 if not discardAnalysis:
                     splittedLine = line.split('\t')
@@ -388,7 +388,7 @@ class MorpheusProcessor:
                         pos = 'relative'
                     elif lemma == 'ti/s' or lemma == 'phli/kos' or lemma == 'poi=os' or lemma == 'po/sos' or lemma == 'po/teros': 
                         pos = 'interrogative'
-                    elif wordclass == 'numeral' or lemma == 'ei(=s' or lemma == 'te/ssares' or re.match('.*ko/sioi',lemma) or re.match('.*xi/lioi',lemma) or re.match('.*mu/rioi',lemma):
+                    elif wordclass == 'numeral' or lemma == 'ei(=s' or lemma == 'te/ssares' or re.match('.*ko/sioi$',lemma) or re.match('.*xi/lioi$',lemma) or re.match('.*mu/rioi$',lemma):
                         pos = 'numeral'
                     elif wordclass == 'exclam' or wordclass == 'expletive' or lemma == 'i)de/' or lemma == 'nai/' or lemma == 'i)dou/' or lemma == 'eu)=ge':
                         pos = 'interjection'
@@ -426,7 +426,7 @@ class MorpheusProcessor:
                         degree = ''
                         if (pos == 'personal' and (lemma == 'e)gw/' or lemma == 'su/' or lemma == 'h(mei=s' or lemma == 'u(mei=s' or lemma == 'e(/' or lemma == 'sfei=s')) or (pos == 'indefinite' and ((lemma == 'tis' and not re.match('.*neut.*',morphology)) or lemma == 'dei=na' or lemma == 'mh/tis' or lemma == 'ou/tis')) or (pos == 'interrogative' and (lemma == 'ti/s' and not re.match('.*neut.*',morphology))):
                             genders.append('comm')
-                        elif pos == 'numeral' and not lemma == 'ei(=s' and not re.match('.*ko/sioi',lemma) and not re.match('.*xi/lioi',lemma) and not re.match('.*mu/rioi',lemma):
+                        elif pos == 'numeral' and not lemma == 'ei(=s' and not re.match('.*ko/sioi$',lemma) and not re.match('.*xi/lioi$',lemma) and not re.match('.*mu/rioi$',lemma):
                             genders.append('none')
                         else:
                             if re.match('.*masc.*',morphology):
@@ -555,7 +555,7 @@ class MorpheusProcessor:
 
                         if re.match('.*sg.*',morphology):
                             number='sg'
-                        if re.match('.*pl',morphology) or re.match('.* pl\\s.*',morphology):
+                        if re.match('.*pl$',morphology) or re.match('.* pl\\s.*',morphology):
                             number='pl'
                         if re.match('.*dual.*',morphology):
                             number='dual'
@@ -702,24 +702,24 @@ class MorpheusProcessor:
 
                         if re.match('.*sg.*',morphology):
                             number='sg'
-                        if re.match('.*pl',morphology) or re.match('.* pl\\s.*',morphology):
+                        if re.match('.*pl$',morphology) or re.match('.* pl\\s.*',morphology):
                             number='pl'
                         if re.match('.*dual.*',morphology):
                             number='dual'
 
-                        if re.match('aor.*',morphology):
+                        if re.match('^aor.*',morphology):
                             tense='aor'
-                        if re.match('pres.*',morphology):
+                        if re.match('^pres.*',morphology):
                             tense='pres'
-                        if re.match('fut .*',morphology):
+                        if re.match('^fut .*',morphology):
                             tense='fut'
-                        if re.match('perf .*',morphology):
+                        if re.match('^perf .*',morphology):
                             tense='pf'
-                        if re.match('imperf.*',morphology):
+                        if re.match('^imperf.*',morphology):
                             tense='impf'
-                        if re.match('plup.*',morphology):
+                        if re.match('^plup.*',morphology):
                             tense='plupf'
-                        if re.match('futperf.*',morphology):
+                        if re.match('^futperf.*',morphology):
                             tense='futpf'
 
                         if re.match('.*ind.*',morphology):
@@ -807,7 +807,7 @@ class MorpheusProcessor:
                                 degree = 'pos'
                         if form == 'w(/sper' or form == 'w(/ste':
                             all_pos.append('conjunction')
-                        elif form == 'a)/nw' or re.match('.*a/nw',form) or form == 'a(/ma':
+                        elif form == 'a)/nw' or re.match('.*a/nw$',form) or form == 'a(/ma':
                             all_pos.append('preposition')
                         elif form == 'mh/':
                             all_pos.append('adverb')
