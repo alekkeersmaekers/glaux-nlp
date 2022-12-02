@@ -5,7 +5,7 @@ class LexiconProcessor:
         self.lexicon = lexicon
     
     def write_lexicon(self,output,output_format,morph_feats,lemma_name='lemma',pos_name='XPOS'):
-        entries_processed = {}
+        entries_processed = set()
         with open(output, 'w', encoding='UTF-8') as outfile:
             for form, entry in self.lexicon.items():
                 for analysis in entry:
