@@ -3,7 +3,7 @@ class LexiconProcessor:
     def __init__(self,lexicon):
         self.lexicon = lexicon
     
-    def add_data(self,data,feats,col_token=2,col_lemma=3,col_upos=4,col_xpos=5,col_morph=6):
+    def add_data(self,data,feats,col_token=1,col_lemma=2,col_upos=3,col_xpos=4,col_morph=5):
         for sent in data:
             for line in sent.split("\n"):
                 split = line.split("\t")
