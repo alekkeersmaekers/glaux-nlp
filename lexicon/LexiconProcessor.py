@@ -40,6 +40,11 @@ class LexiconProcessor:
     def write_lexicon(self,output,output_format,morph_feats,lemma_name='lemma',pos_name='XPOS'):
         entries_processed = set()
         with open(output, 'w', encoding='UTF-8') as outfile:
+            if output_format=='tab':
+                outfile.write('form\tlemma\tXPOS')
+                for feat in morph_feats:
+                    outfile.write('\t'+feat)
+                outfile.write('\n')
             for form, entry in self.lexicon.items():
                 for analysis in entry:
                     analysis_dict = dict(analysis)
@@ -55,5 +60,14 @@ class LexiconProcessor:
                             morph = morph.rstrip(morph[-1])
                         line = form+'\t'+analysis_dict[lemma_name]+'\t'+analysis_dict[pos_name]+'\t'+morph+'\n'
                         if not line in entries_processed:
-                            outfile.write(form+'\t'+analysis_dict[lemma_name]+'\t'+analysis_dict[pos_name]+'\t'+morph+'\n')
+                            outfile.write(line)
                         entries_processed.add(line)
+                    elif output_format=='tab':
+                        line = form+'\t'+analysis_dict[lemma_name]+'\t'+analysis_dict[pos_name]
+                        for feat in morph_feats:
+                            line += '\t'+analysis_dict[feat]
+                        line+='\n'
+                        if not line in entries_processed:
+                            outfile.write(line)
+                        entries_processed.add(line)
+                        

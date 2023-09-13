@@ -10,6 +10,8 @@ class MorpheusProcessor:
         digit = re.sub('[^0-9]','',lemma)
         lemma = re.sub('[0-9]','',lemma)
         lemma = re.sub('-pl$','',lemma)
+        lemma = re.sub(r'([aehiouw][\(\)]?/)i(?!\+)',r'\1i+',lemma)
+        lemma = re.sub(r'([hw])i(/?)(?!\+)',r'\1i\2+',lemma)
         if lemma == 'kata/-ka/qhmai':
             lemma = 'ka/qhmai'
         elif lemma == 'kata/-kaqe/zomai':
@@ -139,10 +141,8 @@ class MorpheusProcessor:
         elif lemma == 'ei)=pon':
             return 'le/gw'
         elif lemma == 'e)pei/':
-            if form == 'e)peidh/':
+            if form == 'e)peidh/' or form == 'e)peidh/per':
                 return 'e)peidh/'
-            elif form == 'e)peidh/per':
-                return 'e)peidh/per'
         elif lemma == 'plei=stos':
             return 'polu/s'
         elif lemma == 'plei/wn':
@@ -163,8 +163,6 @@ class MorpheusProcessor:
             return 'a)gaqo/s'
         elif lemma == 'sautou=':
             return 'seautou='
-        elif re.match('.*per$',form) and not re.match('.*per$',lemma):
-            return lemma + 'per'
         elif lemma == 'pou/':
             return 'pou'
         elif lemma == 'e)rw=':
@@ -286,6 +284,181 @@ class MorpheusProcessor:
             return re.sub('pi/plhmi', 'pi/mplhmi',lemma)
         elif re.match('.*store/nnumi$',lemma):
             return re.sub('store/nnumi', 'sto/rnumi',lemma)
+        elif form == 'a(plw=s' and lemma == 'a(plo/s':
+            return 'a(plw=s'
+        elif lemma == 'e)lea/w':
+            return 'e)lee/w'
+        elif lemma == 'e)pei/per':
+            return 'e)pei/'
+        elif lemma == 'eu)qh/s':
+            return 'eu)qu/s'
+        elif lemma == 'qa/sswn':
+            return 'taxu/s'
+        elif lemma == 'qea/w':
+            return 'qea/omai'
+        elif lemma == '*karxhdw/n' and re.match('.*do.?ni.*',form):
+            return '*karxhdo/nios'
+        elif lemma == 'lagw=s' or lemma == 'lagwo/s':
+            return 'lagw/s'
+        elif lemma == 'o(/loc':
+            return 'o(/los'
+        elif lemma == 'pa/rergon' and form == 'pare/rgws':
+            return 'pa/rergos'
+        elif lemma == 'parista/w':
+            return 'pari/sthmi'
+        elif form == 'poi=' and lemma == 'poi':
+            return 'poi='
+        elif form == 'pou=' and lemma == 'pou':
+            return 'pou='
+        elif lemma == 'xalkou=s':
+            return 'xa/lkeos'
+        elif lemma == '*)/adrhstos':
+            return '*)/adrastos'
+        elif lemma == 'o(/sper':
+            return 'o(/s'
+        elif lemma == 'a)lhqw=s':
+            return 'a)lhqh/s'
+        elif re.match('.*mimnh/skw',lemma):
+            return re.sub('mimnh/skw','mimnh/\|skw',lemma)
+        elif lemma == 'a)nqista/w':
+            return 'a)nqi/sthmi'
+        elif re.match('.*limpa/nw',lemma):
+            return re.sub('limpa/nw','lei/pw',lemma)
+        elif lemma == 'dei=':
+            return 'de/w'
+        elif lemma == 'e)c':
+            return 'e)k'
+        elif re.match('.*ske/ptomai',lemma):
+            return re.sub('ske/ptomai','skope/w',lemma)
+        elif lemma == 'h(/kistos':
+            return 'h)=ka'
+        elif form == 'h)/per':
+            return 'h)/'
+        elif re.match('.*qnh/skw',lemma):
+            return re.sub('qnh/skw','qnh/\|skw',lemma)
+        elif lemma == 'i)/laos':
+            return 'i(/laos'
+        elif lemma == 'katayeu/dw':
+            return 'katayeu/domai'
+        elif lemma == 'makra/n':
+            return 'makro/s'
+        elif form == 'nun' and lemma == 'nu=n':
+            return 'nun'
+        elif lemma == 'o(/ph':
+            return 'o(/ph|'
+        elif lemma == 'pai/dion':
+            return 'paidi/on'
+        elif lemma == 'paidih/':
+            return 'paidia/'
+        elif lemma == 'pampolu/s':
+            return 'pa/mpolus'
+        elif lemma == 'peri/plous':
+            return 'peri/ploos'
+        elif re.match('.*pe/rnhmi',lemma):
+            return re.sub('pe/rnhmi','pipra/skw',lemma)
+        elif lemma == 'pw=s' and form == 'pw/s':
+            return 'pws'
+        elif lemma == 'pws' and form == 'pw=s':
+            return 'pw=s'
+        elif lemma == 'r(a|qumi/a':
+            return 'r(aqumi/a'
+        elif lemma == 'tote/':
+            return 'to/te'
+        elif lemma == 'u(podu/omai':
+            return 'u(podu/w'
+        elif lemma == 'a)nagkai/h':
+            return 'a)na/gkh'
+        elif lemma == 'a)/reios':
+            return '*)/areios'
+        elif lemma == 'a)texnw=s':
+            return 'a)/texnos'
+        elif lemma == 'a)tima/w':
+            return 'a)tima/zw'
+        elif lemma == 'bia/w':
+            return 'bia/zw'
+        elif lemma == '*gai=a' and not re.match('\\*.*',form):
+            return 'gh='
+        elif lemma == 'glukero/s':
+            return 'gluku/s'
+        elif lemma == 'de/ndreon':
+            return 'de/ndron'
+        elif lemma == '*dionu/sos':
+            return '*dio/nusos'
+        elif lemma == 'doru/foros':
+            return 'dorufo/ros'
+        elif lemma == 'e)/dw':
+            return 'e)sqi/w'
+        elif lemma == 'ei)ko/s' or lemma == 'ei)ko/tws':
+            return 'e)/oika'
+        elif lemma == 'e)nergh/s':
+            return 'e)nergo/s'
+        elif lemma == 'peira/zw':
+            return 'peira/w'
+        elif lemma == 'pia/zw':
+            return 'pie/zw'
+        elif lemma == 'r(ipte/w':
+            return 'r(i/ptw'
+        elif lemma == 'r(u/omai':
+            return 'e)ru/w'
+        elif lemma == 'zw/i+on':
+            return 'zw=|on'
+        elif lemma == 'zw/w':
+            return 'za/w'
+        elif lemma == 'a)nia/zw':
+            return 'a)nia/w'
+        elif lemma == 'h)w=qen':
+            return 'e(/wqen'
+        elif lemma == 'i(ro/s':
+            return 'i(ero/s'
+        elif lemma == 'katakei/w':
+            return 'kata/keimai'
+        elif lemma == 'kate/dw':
+            return 'katesqi/w'
+        elif lemma == 'lhi+sth/s':
+            return 'lh|sth/s'
+        elif lemma == '*lilubai=on':
+            return '*lilu/baion'
+        elif lemma == 'nea/niskos':
+            return 'neani/skos'
+        elif lemma == 'neurh/':
+            return 'neura/'
+        elif lemma == 'pa/trh':
+            return 'pa/tra'
+        elif lemma == '*sura/kousa':
+            return '*sura/kousai'
+        elif lemma == 'te/tratos':
+            return 'te/tartos'
+        elif lemma == '*turshno/s':
+            return '*turrhno/s'
+        elif lemma == 'fulako/s':
+            return 'fu/lac'
+        elif lemma == 'w)|dh/':
+            return 'a)oidh/'
+        elif lemma == 'ple/os':
+            return 'ple/ws'
+        elif lemma == 'r(ino/n':
+            return 'r(ino/s'
+        elif lemma == 'a)dino/s':
+            return 'a(dino/s'
+        elif lemma == '*ko/lxos' and re.match('\\*kolxi/d.*',form):
+            return '*kolxi/s'
+        elif lemma == '*ku/zikos' and re.match('\\*kuzikhn.*',form):
+            return '*kuzikhno/s'
+        elif lemma == 'staqmo/n':
+            return 'staqmo/s'
+        elif lemma == '*qeo/s':
+            return 'qeo/s'
+        elif lemma == 'tau)to/s':
+            return 'au)to/s'
+        elif lemma == 'curius':
+            return 'ku/rios'
+        elif form == 'menta)/n' or form == 'me/nta)n':
+            return 'a)/n'
+        elif lemma == '*(/aidhs':
+            return '*(/|adhs'
+        elif lemma == 'pro/seimi' and not re.match(r'pro/?si/?sqi',form) and (not re.match(r'pro/?s(i|h[/=]\|).*',form) or form == 'pro/siqi'):
+            # pro/seimi2 not defined. Fix at source?
+            return 'prose/rxomai'
         return lemma
     
     def find_word_class(self,word,stemtypes):
@@ -375,6 +548,8 @@ class MorpheusProcessor:
                         print(line)
                     morphology = re.sub('^[ ]+', '',splittedLine[1])
                     wordclass = splittedLine[len(splittedLine)-1]
+                    if "," in wordclass:
+                        wordclass = wordclass.split(',')[0]
                     wordclass = self.find_word_class(wordclass, self.stemtypes)
                     if (morphology == 'adverbial' or morphology == 'comp' or lemma == 'pote/' or lemma == 'ma/' or lemma == 'o(/mws' or lemma == 'dio/per') and not (lemma == 'i(/na' or lemma == 'o(/ti' or lemma == 'i)dou/' or lemma == 'h(ni/ka' or lemma == 'eu)=ge' or lemma == 'nai/' or lemma == 'ou(=' or lemma == 'kaqo/ti'):
                         pos = 'adverb'
