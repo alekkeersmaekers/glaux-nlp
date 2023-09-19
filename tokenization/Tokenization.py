@@ -1,6 +1,32 @@
 import re
+import unicodedata
 
-def fix_accents(regularized: str):
+def normalize_greek_nfd(word):
+    word_norm = ''
+    for c in word:
+        if c=='ʹ' or c=='·':
+            word_norm += c
+        else:
+            word_norm += unicodedata.normalize('NFD',c)
+    return word_norm
+        
+
+def normalize_tokens(tokens,normalization_rule):
+    tokens_norm = []
+    for sent in tokens:
+        sent_norm = []
+        for word in sent:
+            if normalization_rule == 'greek_glaux':
+                word = normalize_greek_punctuation(word)
+                word = normalize_greek_nfd(word)
+                word = normalize_greek_accents(word)
+            elif normalization_rule == 'NFD' or normalization_rule == 'NFKD' or normalization_rule == 'NFC' or normalization_rule == 'NFKC':
+                word = unicodedata.normalize(normalization_rule,word)
+            sent_norm.append(word)
+        tokens_norm.append(sent_norm)
+    return tokens_norm
+
+def normalize_greek_accents(regularized: str):
     """
     Replace gravis by acutus, removes second acutus if the following word is enclitic
     """
@@ -17,3 +43,22 @@ def fix_accents(regularized: str):
         return re.sub(double_acutus_pattern, m.group(1) + m.group(2), regularized)
 
     return regularized
+
+def normalize_greek_punctuation(word):
+    word = re.sub(r'[᾽\'ʼ\\u0313´]', '’',word)
+    word = re.sub(r'[‑—]', '—',word)
+    word = re.sub('--', '—',word)
+    word = re.sub(r'[“”„‘«»ʽ"]', '"',word)
+    word = re.sub(r'[:··•˙]', '·',word)
+    word = re.sub(';', ';',word)
+    word = re.sub(r'[（\(]', r'\(',word)
+    word = re.sub(r'[）\)]', r'\)',word)
+    return word
+
+def greek_glaux_to_tokens(string):
+    string = re.sub(r'([\.,—"·;\(\)‑“”„‘«»ʽ:·•˙;（）†])|(--)',r' \1 ',string)
+    string = re.sub(r'\s+',' ',string)
+    string = re.sub(r'^ ', '',string);
+    string = re.sub(r' $', '',string);
+    tokens_str = string.split(' ')
+    return tokens_str

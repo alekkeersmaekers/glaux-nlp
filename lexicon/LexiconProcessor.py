@@ -3,7 +3,7 @@ class LexiconProcessor:
     def __init__(self,lexicon):
         self.lexicon = lexicon
     
-    def add_data(self,data,feats,col_token=1,col_lemma=2,col_upos=3,col_xpos=4,col_morph=5):
+    def add_data(self,data,feats,col_token=1,col_lemma=2,col_upos=3,col_xpos=4,col_morph=5,normalization_rule=None):
         for sent in data:
             for line in sent.split("\n"):
                 split = line.split("\t")
@@ -37,7 +37,7 @@ class LexiconProcessor:
                     tags.append(tag)
                     self.lexicon[form] = tags
     
-    def write_lexicon(self,output,output_format,morph_feats,lemma_name='lemma',pos_name='XPOS'):
+    def write_lexicon(self,output,morph_feats,output_format='tab',lemma_name='lemma',pos_name='XPOS'):
         entries_processed = set()
         with open(output, 'w', encoding='UTF-8') as outfile:
             if output_format=='tab':

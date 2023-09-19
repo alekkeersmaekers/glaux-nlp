@@ -1,9 +1,7 @@
 /files/greek/electra-grc-2/*
 /tagger/Tests.py
 /.settings/*
-/data/__pycache__/*
-/lexicon/__pycache__/*
-/tagger/__pycache__/*
-/tokenization/__pycache__/*
 /.project
 /.pydevproject
+/*/__pycache__/*
+/tests/*

@@ -1,6 +1,6 @@
 import torch.utils.data
 
-class AGPoSDataset(torch.utils.data.Dataset):
+class ClassificationDataset(torch.utils.data.Dataset):
     def __init__(self, encodings, labels, wids):
         self.encodings = encodings
         self.labels = labels
