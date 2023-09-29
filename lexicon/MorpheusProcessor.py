@@ -6,6 +6,13 @@ class MorpheusProcessor:
     def __init__(self):
         self.stemtypes = os.getenv('MORPHLIB') + '/Greek/rule_files/stemtypes.table'
     
+    def beta_to_uni(self,form):
+        # First line is a fix for unicodedata where the order of the diaeresis is wrong, can be fixed when this is fixed
+        form_norm = re.sub(r'\+([/=])',r'\1+',form)
+        form_uni = beta_code.beta_code_to_greek(form_norm)
+        form_uni = unicodedata.normalize("NFD",form_uni)
+        return form_uni
+    
     def regularize_lemma(self,lemma,form):
         digit = re.sub('[^0-9]','',lemma)
         lemma = re.sub('[0-9]','',lemma)
@@ -450,15 +457,19 @@ class MorpheusProcessor:
             return 'qeo/s'
         elif lemma == 'tau)to/s':
             return 'au)to/s'
-        elif lemma == 'curius':
+        elif lemma == 'Curius':
             return 'ku/rios'
         elif form == 'menta)/n' or form == 'me/nta)n':
             return 'a)/n'
         elif lemma == '*(/aidhs':
             return '*(/|adhs'
-        elif lemma == 'pro/seimi' and not re.match(r'pro/?si/?sqi',form) and (not re.match(r'pro/?s(i|h[/=]\|).*',form) or form == 'pro/siqi'):
+        elif lemma == 'pro/seimi' and not re.match(r'pro/?si/?sqi',form) and (re.match(r'pro/?s(i|h[/=]\|).*',form) or form == 'pro/siqi'):
             # pro/seimi2 not defined. Fix at source?
             return 'prose/rxomai'
+        elif lemma == '*phnelo/ph':
+            return '*phnelo/peia'
+        elif lemma == '*mwush=s':
+            return '*mwu+sh=s'
         return lemma
     
     def find_word_class(self,word,stemtypes):
@@ -668,25 +679,23 @@ class MorpheusProcessor:
                             print('No number: '+form+'\t'+morphology)
                             number = 'sg'
                         
-                        form_uni = beta_code.beta_code_to_greek(form)
-                        form_uni = unicodedata.normalize("NFKD",form_uni)
+                        form_uni = self.beta_to_uni(form)
                         form_uni = re.sub('\'','’',form_uni)
-                        lemma_uni = beta_code.beta_code_to_greek(lemma)
-                        lemma_uni = unicodedata.normalize("NFKD",lemma_uni)
+                        lemma_uni = self.beta_to_uni(lemma)
                         
                         for gender in genders:
                             for ncase in cases:
                                 tag = []
                                 tag.append(('XPOS',pos))
                                 tag.append(('person','_'))
-                                tag.append(('number',number.upper()))
+                                tag.append(('number',number))
                                 tag.append(('tense','_'))
                                 tag.append(('mood','_'))
                                 tag.append(('voice','_'))
-                                tag.append(('gender',gender.upper()))
-                                tag.append(('case',ncase.upper()))
+                                tag.append(('gender',gender))
+                                tag.append(('case',ncase))
                                 if pos == 'adjective':
-                                    tag.append(('degree',degree.upper()))
+                                    tag.append(('degree',degree))
                                 else:
                                     tag.append(('degree','_'))
                                 tag.append(('lemma',lemma_uni))
@@ -767,23 +776,21 @@ class MorpheusProcessor:
                             print('No voice: '+form)
                             voice = 'act'
                         
-                        form_uni = beta_code.beta_code_to_greek(form)
-                        form_uni = unicodedata.normalize("NFKD",form_uni)
+                        form_uni = self.beta_to_uni(form)
                         form_uni = re.sub('\'','’',form_uni)
-                        lemma_uni = beta_code.beta_code_to_greek(lemma)
-                        lemma_uni = unicodedata.normalize("NFKD",lemma_uni)
+                        lemma_uni = self.beta_to_uni(lemma)
                         
                         for gender in genders:
                             for ncase in cases:
                                 tag = []
                                 tag.append(('XPOS',pos))
                                 tag.append(('person','_'))
-                                tag.append(('number',number.upper()))
-                                tag.append(('tense',tense.upper()))
+                                tag.append(('number',number))
+                                tag.append(('tense',tense))
                                 tag.append(('mood','_'))
-                                tag.append(('voice',voice.upper()))
-                                tag.append(('gender',gender.upper()))
-                                tag.append(('case',ncase.upper()))
+                                tag.append(('voice',voice))
+                                tag.append(('gender',gender))
+                                tag.append(('case',ncase))
                                 tag.append(('degree','_'))
                                 tag.append(('lemma',lemma_uni))
                                 tag.append(('infl',infl))
@@ -827,19 +834,17 @@ class MorpheusProcessor:
                             print('No voice: '+form)
                             voice = 'act'
                         
-                        form_uni = beta_code.beta_code_to_greek(form)
-                        form_uni = unicodedata.normalize("NFKD",form_uni)
+                        form_uni = self.beta_to_uni(form)
                         form_uni = re.sub('\'','’',form_uni)
-                        lemma_uni = beta_code.beta_code_to_greek(lemma)
-                        lemma_uni = unicodedata.normalize("NFKD",lemma_uni)
+                        lemma_uni = self.beta_to_uni(lemma)
                         
                         tag = []
                         tag.append(('XPOS',pos))
                         tag.append(('person','_'))
                         tag.append(('number','_'))
-                        tag.append(('tense',tense.upper()))
+                        tag.append(('tense',tense))
                         tag.append(('mood','_'))
-                        tag.append(('voice',voice.upper()))
+                        tag.append(('voice',voice))
                         tag.append(('gender','_'))
                         tag.append(('case','_'))
                         tag.append(('degree','_'))
@@ -937,19 +942,16 @@ class MorpheusProcessor:
                             print('No voice: '+form+'\n')
                             voice = 'act'
                         
-                        form_uni = beta_code.beta_code_to_greek(form)
-                        form_uni = unicodedata.normalize("NFKD",form_uni)
+                        form_uni = self.beta_to_uni(form)
                         form_uni = re.sub('\'','’',form_uni)
-                        lemma_uni = beta_code.beta_code_to_greek(lemma)
-                        lemma_uni = unicodedata.normalize("NFKD",lemma_uni)
-                        
+                        lemma_uni = self.beta_to_uni(lemma)
                         tag = []
                         tag.append(('XPOS',pos))
-                        tag.append(('person',person.upper()))
-                        tag.append(('number',number.upper()))
-                        tag.append(('tense',tense.upper()))
-                        tag.append(('mood',mood.upper()))
-                        tag.append(('voice',voice.upper()))
+                        tag.append(('person',person))
+                        tag.append(('number',number))
+                        tag.append(('tense',tense))
+                        tag.append(('mood',mood))
+                        tag.append(('voice',voice))
                         tag.append(('gender','_'))
                         tag.append(('case','_'))
                         tag.append(('degree','_'))
@@ -991,12 +993,22 @@ class MorpheusProcessor:
                             all_pos.append('preposition')
                             all_pos.append('adverb')
                             degree = 'pos'
+                        elif lemma == 'xa/ris':
+                            lemma = 'xa/rin'
+                        elif lemma == 'plhsi/os':
+                            lemma = 'plhsi/on'
+                        elif lemma == 'e)nw/pios':
+                            lemma = 'e)nw/pion'
+                        elif lemma == 'h)/' or lemma == 'h)de/':
+                            all_pos.append('coordinator')
+                        elif lemma== 'ma/la' and re.match('.*is[tq].*',form):
+                            degree = 'sup';
+                        elif lemma == 'ma/la' and re.match('.*a=ll.*',form):
+                            degree = 'comp'                       
                         
-                        form_uni = beta_code.beta_code_to_greek(form)
-                        form_uni = unicodedata.normalize("NFKD",form_uni)
+                        form_uni = self.beta_to_uni(form)
                         form_uni = re.sub('\'','’',form_uni)
-                        lemma_uni = beta_code.beta_code_to_greek(lemma)
-                        lemma_uni = unicodedata.normalize("NFKD",lemma_uni)
+                        lemma_uni = self.beta_to_uni(lemma)
                         
                         for poss_pos in all_pos:
                             tag = []
@@ -1009,7 +1021,7 @@ class MorpheusProcessor:
                             tag.append(('gender','_'))
                             tag.append(('case','_'))
                             if poss_pos == 'adverb':
-                                tag.append(('degree',degree.upper()))
+                                tag.append(('degree',degree))
                             else:
                                 tag.append(('degree','_'))
                             tag.append(('lemma',lemma_uni))

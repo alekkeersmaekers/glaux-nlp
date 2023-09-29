@@ -1,6 +1,6 @@
 import numpy as np
 import logging
-from transformers import AutoTokenizer, AutoModelForTokenClassification, AutoConfig, AdamW 
+from transformers import AutoTokenizer, AutoModelForTokenClassification, AutoConfig, AdamW, TrainingArguments, Trainer
 from data.CONLLReader import CONLLReader
 from data.ClassificationDataset import ClassificationDataset
 from torch.utils.data import DataLoader
@@ -11,7 +11,7 @@ from tokenization import Tokenization
 
 class Classifier:
     
-    def __init__(self,tokenizer_path,transformer_path,model_dir,training_data=None,test_data=None,ignore_label=None,unknown_label=None,data_preset='CONLL',feature_cols=None):
+    def __init__(self,transformer_path,model_dir,tokenizer_path,training_data=None,test_data=None,ignore_label=None,unknown_label=None,data_preset='CONLL',feature_cols=None):
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         if tokenizer_path is None:
             self.tokenizer = AutoTokenizer.from_pretrained(transformer_path)
@@ -198,7 +198,7 @@ class Classifier:
     def write_prediction(self,wids,tokens,tags,preds,output_file,output_format):
         with open(output_file, 'w', encoding='UTF-8') as outfile:
             if output_format == 'tab':
-                outfile.write("id\ttoken\tprediction\tprobability\n")
+                outfile.write("id\ttoken\tgold\tprediction\tprobability\n")
             word_no = -1
             for sent_id, sent in enumerate(tokens):
                 for word_id, word in enumerate(sent):
@@ -217,7 +217,7 @@ class Classifier:
                         elif output_format == 'simple':
                             outfile.write(wid + "\t" + word + "\t"+top_prediction[0]+"\n")
                         elif output_format == 'tab':
-                            outfile.write(wid + "\t" + word + "\t" + top_prediction[0] + "\t" + f"{top_prediction[1]:.5f}"+"\n")
+                            outfile.write(wid + "\t" + word + "\t" + tag +"\t" + top_prediction[0] + "\t" + f"{top_prediction[1]:.5f}"+"\n")
                 if output_format == 'CONLL' or output_format == 'simple':
                     outfile.write('\n')
                         
@@ -249,7 +249,7 @@ if __name__ == '__main__':
         if args.training_data == None:
             print('Training data is missing')
         else:
-            classifier = Classifier(args.tokenizer_path,args.transformer_path,args.model_dir,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols)
+            classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols)
             wids, tokens, tags = classifier.reader.read_tags('MISC', classifier.training_data, False)
             tokens_norm = tokens
             if args.normalization_rule is not None:
@@ -259,7 +259,7 @@ if __name__ == '__main__':
         if args.test_data == None:
             print('Test data is missing')
         else:
-            classifier = Classifier(args.tokenizer_path,args.transformer_path,args.model_dir,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols)
+            classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols)
             wids, tokens, tags = classifier.reader.read_tags('MISC', classifier.test_data, False)
             tokens_norm = tokens
             if args.normalization_rule is not None:

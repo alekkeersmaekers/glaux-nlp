@@ -35,14 +35,14 @@ class Tagger:
             self.trim_lexicon()
             if add_training_data_to_lexicon and self.training_data is not None:
                 lp = LexiconProcessor(self.lexicon)
-                lp.add_data(self.training_data,feats=self.feature_dict,col_token=self.reader.feature_cols['FORM'],col_upos=self.reader.feature_cols['UPOS'],col_xpos=self.reader.feature_cols['XPOS'],col_morph=self.reader.feature_cols['FEATS'],normalization_rule)
+                lp.add_data(self.training_data,feats=self.feature_dict,col_token=self.reader.feature_cols['FORM'],col_upos=self.reader.feature_cols['UPOS'],col_xpos=self.reader.feature_cols['XPOS'],col_morph=self.reader.feature_cols['FEATS'],normalization_rule=normalization_rule)
         else:
             self.lexicon = None
         self.possible_tags = self.build_possible_tags(possible_tags_file)
 
     
     def tag_individual_feat(self,feat,wids,tokens):
-        feature_classifier = Classifier(self.tokenizer_path,self.transformer_path,unknown_label=self.unknown_label,model_dir=self.model_dir)
+        feature_classifier = Classifier(self.transformer_path,tokenizer_path=self.tokenizer_path,unknown_label=self.unknown_label,model_dir=self.model_dir)
         if self.test_data is not None:
             if feat == 'UPOS' or feat == 'XPOS':
                 tags = self.reader.read_tags(feat, self.test_data, return_words=False)
@@ -74,7 +74,7 @@ class Tagger:
         return all_preds
     
     def train_individual_feat(self,feat,batch_size,epochs,normalization_rule=None):
-        feat_classifier = Classifier(tokenizer_path=self.tokenizer_path,transformer_path=self.transformer_path,model_dir=self.model_dir)
+        feat_classifier = Classifier(transformer_path=self.transformer_path,model_dir=self.model_dir,tokenizer_path=self.tokenizer_path)
         if feat=='UPOS' or feat=='XPOS':
             wids, tokens, tags = self.reader.read_tags(feat,self.training_data)
         else:

@@ -1,5 +1,8 @@
+from tokenization import Tokenization
+import unicodedata
+
 class LexiconProcessor:
-    
+        
     def __init__(self,lexicon):
         self.lexicon = lexicon
     
@@ -28,6 +31,12 @@ class LexiconProcessor:
                             tag.append((feat, '_'))
                 tag = tuple(tag)
                 form = split[col_token]
+                if normalization_rule == 'greek_glaux':
+                    form = Tokenization.normalize_greek_punctuation(form)
+                    form = Tokenization.normalize_greek_nfd(form)
+                    form = Tokenization.normalize_greek_accents(form)
+                elif normalization_rule == 'NFD' or normalization_rule == 'NFKD' or normalization_rule == 'NFC' or normalization_rule == 'NFKC':
+                    form = unicodedata.normalize(normalization_rule,form)
                 if form in self.lexicon:
                     tags = self.lexicon[form]
                     if tag not in tags:
