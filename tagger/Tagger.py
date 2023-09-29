@@ -39,6 +39,7 @@ class Tagger:
         else:
             self.lexicon = None
         self.possible_tags = self.build_possible_tags(possible_tags_file)
+        self.normalization_rule = normalization_rule
 
     
     def tag_individual_feat(self,feat,wids,tokens):
@@ -91,7 +92,7 @@ class Tagger:
             pool.map(func, self.feature_dict)        
         else:
             for feat in self.feature_dict:
-                self.train_individual_feat(feat,batch_size,epochs)
+                self.train_individual_feat(feat,batch_size,epochs,normalization_rule=normalization_rule)
         
     def build_feature_dict(self):
         # Builds a dictionary with all tagging features and their possible values, based on the training data or the saved tagger models. This might be unnecessary: it is not clear to me anymore why we need the possible_values instead of only the names of the features. Maybe just for diagnostic purposes?
@@ -416,7 +417,7 @@ if __name__ == '__main__':
             print('Training data is missing')
         else:
             tagger = Tagger(training_data=args.training_data,tokenizer_path=args.tokenizer_path,transformer_path=args.transformer_path,feats=feats,model_dir=args.model_dir)
-            tagger.train_separate_models(batch_size=args.batch_size,epochs=args.epochs,multicore=args.multicore,normalization=args.normalization_rule)
+            tagger.train_separate_models(batch_size=args.batch_size,epochs=args.epochs,multicore=args.multicore,normalization_rule=args.normalization_rule)
     elif args.mode == 'test':
         if args.test_data == None:
             print('Test data is missing')
