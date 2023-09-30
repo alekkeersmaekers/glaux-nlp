@@ -9,7 +9,7 @@ from functools import partial
 import os
 from transformers import AutoConfig
 from argparse import ArgumentParser
-from lexicon import LexiconProcessor
+from lexicon.LexiconProcessor import LexiconProcessor
 
 class Tagger:
 
