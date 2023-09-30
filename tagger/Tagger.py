@@ -247,12 +247,24 @@ class Tagger:
         else:
             return all_tags
         
-    def write_prediction(self,wids,tokens,tokens_norm,best_tags,output_file,output_format='CONLL',num_poss=None):
+    def write_prediction(self,wids,tokens,tokens_norm,best_tags,output_file,output_format='CONLL',num_poss=None,output_gold=True,output_sentence=True):
+        if output_gold:
+            tags_gold = dict()
+            for feat in self.feature_dict:
+                if feat == 'UPOS' or feat == 'XPOS':
+                    tags_gold[feat] = self.reader.read_tags(feat, self.test_data, return_words=False)
+                else:
+                    tags_gold[feat] = self.reader.read_tags(feat, self.test_data, in_feats=True, return_words=False)
         with open(output_file, 'w', encoding='UTF-8') as outfile:
             if output_format == 'tab':
                 outfile.write("id\ttoken\tprobability\tpossibilities\tin_lexicon")
                 for feat in self.feature_dict:
                     outfile.write("\t"+feat)
+                if output_gold:
+                    for feat in self.feature_dict:
+                        outfile.write("\tgold_"+feat)
+                if output_sentence:
+                    outfile.write("\tsentence")
                 outfile.write('\n')
             word_no = -1
             for sent_id, sent in enumerate(tokens):
@@ -288,6 +300,19 @@ class Tagger:
                             if feat in tag:
                                 val = tag[feat]
                             outfile.write("\t"+val)
+                        if output_gold:
+                            for feat in self.feature_dict:
+                                outfile.write('\t'+tags_gold[feat][sent_id][word_id])
+                        if output_sentence:
+                            sent = ''
+                            for word_id_2, word_2 in enumerate(sent):
+                                if word_id_2 == word_id:
+                                    sent+='['
+                                sent+= word_2
+                                if word_id_2 == word_id:
+                                    sent+=']'
+                                sent+= ' '
+                            outfile.write('\t'+sent.trim)
                         outfile.write('\n')
                 if output_format == 'CONLL':
                     outfile.write('\n')
