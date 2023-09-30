@@ -304,15 +304,15 @@ class Tagger:
                             for feat in self.feature_dict:
                                 outfile.write('\t'+tags_gold[feat][sent_id][word_id])
                         if output_sentence:
-                            sent = ''
+                            sent_str = ''
                             for word_id_2, word_2 in enumerate(sent):
                                 if word_id_2 == word_id:
-                                    sent+='['
-                                sent+= word_2
+                                    sent_str+='['
+                                sent_str+= word_2
                                 if word_id_2 == word_id:
-                                    sent+=']'
-                                sent+= ' '
-                            outfile.write('\t'+sent.trim)
+                                    sent_str+=']'
+                                sent_str+= ' '
+                            outfile.write('\t'+sent_str.strip())
                         outfile.write('\n')
                 if output_format == 'CONLL':
                     outfile.write('\n')
