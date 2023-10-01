@@ -245,7 +245,7 @@ class Tagger:
         elif return_all_probs:
             return best_tags, all_tags
         else:
-            return all_tags
+            return best_tags
         
     def write_prediction(self,wids,tokens,tokens_norm,best_tags,output_file,output_format='CONLL',num_poss=None,output_gold=True,output_sentence=True):
         if output_gold:
@@ -406,8 +406,6 @@ class Tagger:
             for id, token in enumerate(sent):
                 wids_sent.append(str(id+1))
             wids.append(wids_sent)
-        wids = []
-        wids.append(wids_sent)
         return wids, tokens
 
     def color_by_prob(self,prob):
