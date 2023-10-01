@@ -126,13 +126,8 @@ class Classifier:
         self.classifier_model.train()
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         optim = AdamW(self.classifier_model.parameters(), lr=5e-5)
-        train_gold = []
-        train_predictions = []
-        total_acc, total_count = 0, 0
         
         for epoch in range(epochs):
-            train_gold = []
-            train_predictions = []
         
             for idx, batch in enumerate(train_loader):
                 optim.zero_grad()
@@ -141,25 +136,9 @@ class Classifier:
                 labels = batch['labels'].to(self.device)
                 outputs = self.classifier_model(input_ids, attention_mask=attention_mask, labels=labels)
         
-                for batch_idx, batch_piece in enumerate(labels):
-                    for label_idx, label in enumerate(batch_piece):
-                        if label != -100:
-                            predictions = list(outputs[1][batch_idx][label_idx])
-                            current_pred = predictions.index(max(predictions))
-        
-                            if label == current_pred:
-                                total_acc += 1
-                            total_count += 1
-                            train_gold.append(id2tag[label.item()])
-                            train_predictions.append(id2tag[current_pred])
-        
                 loss = outputs[0]
                 loss.backward()
-                optim.step()
-                if total_count != 0:
-                    print("| epoch {:3d} | {:5d}/{:5d} batches "
-                        "| accuracy {:8.3f}".format(epoch, idx, len(train_loader), total_acc/total_count))
-                total_acc, total_count = 0, 0
+                print("| epoch {:3d} | {:5d}/{:5d} batches")
 
         self.classifier_model.save_pretrained(output_model)
     

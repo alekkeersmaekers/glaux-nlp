@@ -2,10 +2,10 @@ import re
 
 class CONLLReader:
     
-    def __init__(self,preset='UD',feature_cols=None):
+    def __init__(self,preset='CONLL',feature_cols=None):
         if feature_cols is None:
             feature_cols = dict()
-            if preset == 'UD':
+            if preset == 'CONLL':
                 feature_cols['ID'] = 0
                 feature_cols['FORM'] = 1
                 feature_cols['LEMMA'] = 2
