@@ -2,124 +2,94 @@ from tagger.Tagger import Tagger
 from lexicon.LexiconProcessor import LexiconProcessor
 from data.CONLLReader import CONLLReader
 import os
-from transformers import AutoConfig 
+from transformers import AutoConfig, DataCollatorForTokenClassification, AutoModelForTokenClassification, TrainingArguments, Trainer
 from itertools import product
 from classification.Classifier import Classifier
 from tokenization.Tokenization import normalize_tokens
 import numpy as np
 import logging
+from transformers import pipeline
+from transformers.pipelines.pt_utils import KeyDataset
+import torch
+from torch.utils.data import DataLoader
 
 from datasets import Dataset, DatasetDict
 
-def tokenize_and_align_labels(data, classifier, tag2id, print_output):
-    
-    print(data)
-    
-    encodings = classifier.tokenizer(data['tokens'], padding='max_length', truncation=True, max_length=512, is_split_into_words=True, return_offsets_mapping=True)
-    labels = data['labels']
-    
-    if classifier.ignore_label is not None:
-        tag2id[classifier.ignore_label] = -100
-    
-    if classifier.unknown_label is not None and not classifier.unknown_label in tag2id:
-        tag2id[classifier.unknown_label] = 0
-    
-    # SentencePiece uses a special character, (U+2581) 'lower one eighth block' to reconstruct spaces. Sometimes this character gets tokenized into its own subword, needing special control behavior.
-    # Below, we set all seperately tokenized U+2581 to -100.
-    prefix_subword_id = None
-    if '▁' in classifier.tokenizer.vocab.keys():
-        prefix_subword_id = classifier.tokenizer.convert_tokens_to_ids('▁')
-
-    encoded_labels = []
-    idx = 0
-
-    # We use a subword tokenizer, so there are more tokens than labels. We need the offset mapping to link each label to the last subword of each original word.
-    for doc_labels, doc_offset in zip(labels, encodings.offset_mapping):
-        initial_length = len(doc_labels)
-        doc_enc_labels = np.ones(len(doc_offset),dtype=int) * -100  # we initialize an array with a length equal to the number of subwords, and fill it with -100, an unreachable number to avoid confusion.
-
-        current_x, current_y, label_match_id = -1, -1, -1
-        subword_counter = 0
-        prefix_counter = 0
-        if idx <= 5 and print_output:
-            print(idx)
-        
-        if len(doc_offset) > 512:
-            print("Offset wrong")
-        
-        for i, (x, y) in enumerate(doc_offset):  # We loop through the offset of each document to match the word endings.
-            if i == len(doc_offset) - 1:  # Catches the edge case in which there are 512 subwords.
-                if (x, y) != (0, 0):
-                    label_match_id += 1
-                    doc_enc_labels[i] = doc_labels[label_match_id]
-                    if idx <= 5 and print_output:
-                        print(i, label_match_id, x, y)
-                    subword_counter = 0
-            else:
-                next_x, next_y = doc_offset[i + 1]
-
-                # Each new word starts with x = 0. Subsequent subwords follow the pattern y = next_x
-                # For example (0, 1) (1, 4) (4, 6)
-                # If a sentence does not need the full 512 subwords (most cases): the remaining ones are filled with (0,0): see edge case supra
-                
-                # Necessary for SentencePiece, see above.                    
-                if prefix_subword_id is not None and encodings[idx].ids[i] == prefix_subword_id:
-                    doc_enc_labels[i] = -100
-                    prefix_counter += 1
-
-                elif y != next_x and next_x == 0:
-                    label_match_id += 1
-                    doc_enc_labels[i] = doc_labels[label_match_id]  # Switches the initial -100 to the correct label.
-                    if idx <= 5 and print_output:
-                        print(i, label_match_id,classifier.tokenizer.decode(encodings.encodings[idx].ids[i - subword_counter:i + 1]),classifier.id2tag[doc_labels[label_match_id]])
-                    subword_counter = 0
-
-                else:
-                    subword_counter += 1
-
-        result = 0
-        for number in doc_enc_labels:  # Sanity check: the number of labels should be equal to the number of words at the end of sentence.
-            if number != -100:
-                result += 1
-
-        if initial_length != result:
-            logging.log(0, f"Result doesn't match length at {idx}")
-
-        encoded_labels.append(doc_enc_labels.tolist())
-
-        idx += 1
-    
-    encodings['labels'] = encoded_labels
-
-    return encoded_labels
-
+from tqdm import tqdm
 
 if __name__ == '__main__':
     
-    classifier = Classifier('C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model/tokenizer','C:/Users/u0111778/Documents/LanguageModels/morphology_test/models',tokenizer_path='C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model/tokenizer',training_data='C:/Users/u0111778/Documents/LanguageModels/morphology_test/data_test.txt')
-    wids, tokens, tags = classifier.reader.read_tags(data=classifier.training_data, feature='XPOS')
-    tokens_norm = normalize_tokens(tokens,'greek_glaux')
-    unique_tags = set(tag for doc in tags for tag in doc)
-    classifier.tag2id = {tag: s_id for s_id, tag in enumerate(sorted(unique_tags))}
-    classifier.id2tag = {s_id: tag for tag, s_id in classifier.tag2id.items()}
+    classifier = Classifier(transformer_path='C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model',model_dir='C:/Users/u0111778/Documents/LanguageModels/test_wsd',tokenizer_path='C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model/tokenizer',test_data='C:/Users/u0111778/OneDrive - KU Leuven/Treebank/RANLP/WSD/TestData_glossa_wsd.txt',ignore_label='_',unknown_label='[UNK]',feature_cols={'ID':1,'FORM':2,'MISC':3})
         
-    training_dataset = []
+    wids,tokens, tags = classifier.reader.read_tags('MISC', classifier.test_data, in_feats=False)
+    tokens_norm = tokens
+    tags_dict = {'MISC':tags}
+    test_data = classifier.build_dataset(tokens,tags_dict)
+    test_data = test_data.map(classifier.tokenize_sentence)
+    #test_data = test_data.map(classifier.tokenize_sentence,fn_kwargs={'return_tensors':'pt'})
+    #test_data.set_format("pt",columns=["input_ids"],output_all_columns=True)
     
-    for sent_id, sent in enumerate(tokens_norm):
-        sent_dict = dict()
-        sent_dict['tokens'] = tokens_norm[sent_id]
-        sent_dict['labels'] = [classifier.tag2id[tag] for tag in tags[sent_id]]
-        training_dataset.append(sent_dict)
-        
-
-    dataset = Dataset.from_list(training_dataset)
+    classifier.classifier_model = AutoModelForTokenClassification.from_pretrained(classifier.model_dir)
+    classifier.config = AutoConfig.from_pretrained(classifier.model_dir)
+    id2tag = classifier.config.id2label
     
-    print(dataset[0])
+    test_data = test_data.map(classifier.align_labels,fn_kwargs={"prefix_subword_id":classifier.prefix_subword_id,"tag2id":classifier.config.label2id})
     
-    #dataset = dataset.map(lambda examples: tokenize_and_align_labels(examples,classifier=classifier,tag2id=classifier.tag2id,print_output=False), batched=True)
+    labels_name = 'MISC'
+    
+    data_collator = DataCollatorForTokenClassification(tokenizer=classifier.tokenizer)
+    training_args = TrainingArguments(output_dir=classifier.model_dir,per_device_eval_batch_size=16)
+    trainer = Trainer(model=classifier.classifier_model,args=training_args,tokenizer=classifier.tokenizer,data_collator=data_collator)
+    predictions = trainer.predict(test_data)
+    softmaxed_predictions = torch.nn.functional.softmax(torch.from_numpy(predictions.predictions),dim=-1).tolist()
+    # This only works when padding is set to the right, since the padded predictions will be longer than valid_subword
+    all_preds = []
+    for sent_no, sent in enumerate(test_data):
+        valid_subwords = classifier.get_valid_subwords(sent['offset_mapping'],sent['input_ids'],prefix_subword_id=classifier.prefix_subword_id)
+        for subword_no, valid_subword in enumerate(valid_subwords):
+            if valid_subword:
+                # If a (sub)word has the label defined by ignore_label, it is also set to -100 with classifier.align_labels, even though it is counted as a valid subword
+                if not ('labels' in sent and sent['labels'][subword_no] == -100):
+                    preds = {}
+                    for prob_n, prob in enumerate(softmaxed_predictions[sent_no][subword_no]):
+                        classname = id2tag[prob_n]
+                        preds[classname] = prob
+                    all_preds.append(preds)
+    
+    classifier.write_prediction(wids,tokens,tags,all_preds,'C:/Users/u0111778/Documents/LanguageModels/test_wsd.txt','tab')
         
-    #tokenized_data = dataset.map(tokenize_and_align_labels,batched=True,fn_kwargs={"classifier":classifier,"tag2id":classifier.tag2id,"print_output":False})
-        
+    #preds_total = []
+    #with torch.no_grad():
+    #    for sent in tqdm(test_data,desc='Making sentence prediction'):
+    #        labels = sent[labels_name]
+    #        valid_subwords = classifier.get_valid_subwords(sent['offset_mapping'][0],sent['input_ids'][0],prefix_subword_id=classifier.prefix_subword_id)
+    #        input_ids = sent['input_ids']
+    #        outputs = classifier.classifier_model(input_ids)
+    #        predictions = outputs.logits[0]
+    #        softmaxed_predictions = torch.nn.functional.softmax(predictions,dim=-1).tolist()
+    #        token_index = -1
+    #        for subword_n, softmaxed_prediction in enumerate(softmaxed_predictions):
+    #            preds = {}
+    #            for prob_n, prob in enumerate(softmaxed_prediction):
+    #                classname = id2tag[prob_n]
+    #                preds[classname] = prob
+    #            if valid_subwords[subword_n] == True:
+    #                token_index+=1
+    #                if not(classifier.ignore_label is not None and labels[token_index] == classifier.ignore_label):
+    #                    preds_total.append(preds)
+    
+    #classifier.write_prediction(wids,tokens,tags,preds_total,'C:/Users/u0111778/Documents/LanguageModels/test_wsd.txt','tab')
+            
+    
+    #classifier.id2tag[-100] = '_'
+    #for sent in tokenized_dataset:
+    #    input_ids = sent["input_ids"]
+    #    labels = sent["labels"]
+    #    for i, input_id in enumerate(input_ids):
+    #        print(classifier.tokenizer.decode(input_id)+' '+classifier.id2tag[labels[i]])
+    
+    
+    
     #tagger.possible_tags = tagger.build_possible_tags()
     #for tag in tagger.possible_tags:
     #    print(tag)

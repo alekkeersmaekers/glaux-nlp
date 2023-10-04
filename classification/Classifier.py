@@ -1,13 +1,11 @@
 import numpy as np
-import logging
-from transformers import AutoTokenizer, AutoModelForTokenClassification, AutoConfig, AdamW, TrainingArguments, Trainer
+from transformers import AutoTokenizer, AutoModelForTokenClassification, AutoConfig, TrainingArguments, Trainer, DataCollatorForTokenClassification
 from data.CONLLReader import CONLLReader
-from data.ClassificationDataset import ClassificationDataset
-from torch.utils.data import DataLoader
 import torch
 from argparse import ArgumentParser
 import json
 from tokenization import Tokenization
+from data import Datasets
 
 class Classifier:
     
@@ -17,6 +15,9 @@ class Classifier:
             self.tokenizer = AutoTokenizer.from_pretrained(transformer_path)
         else:
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+        self.prefix_subword_id = None
+        if '▁' in self.tokenizer.vocab.keys():
+            self.prefix_subword_id = self.tokenizer.convert_tokens_to_ids('▁')
         self.transformer_path = transformer_path
         self.model_dir = model_dir
         self.reader = CONLLReader(data_preset,feature_cols)
@@ -30,149 +31,128 @@ class Classifier:
             self.test_data = None
         self.ignore_label = ignore_label
         self.unknown_label = unknown_label
-        
-    def encode_tags(self, tags, encodings, tag2id, print_output):
-        
-        if self.ignore_label is not None:
-            tag2id[self.ignore_label] = -100
-        
-        if self.unknown_label is not None and not self.unknown_label in tag2id:
-            tag2id[self.unknown_label] = 0
-        
-        # SentencePiece uses a special character, (U+2581) 'lower one eighth block' to reconstruct spaces. Sometimes this character gets tokenized into its own subword, needing special control behavior.
-        # Below, we set all seperately tokenized U+2581 to -100.
-        prefix_subword_id = None
-        if '▁' in self.tokenizer.vocab.keys():
-            prefix_subword_id = self.tokenizer.convert_tokens_to_ids('▁')
-        
-        # Give tags to words instead of subwords
-        labels = [[tag2id[tag] for tag in doc] for doc in tags]  # corresponding numbers of the different labels in the data set
-        encoded_labels = []
-        idx = 0
 
-        # We use a subword tokenizer, so there are more tokens than labels. We need the offset mapping to link each label to the last subword of each original word.
-        for doc_labels, doc_offset in zip(labels, encodings.offset_mapping):
-            initial_length = len(doc_labels)
-            doc_enc_labels = np.ones(len(doc_offset),dtype=int) * -100  # we initialize an array with a length equal to the number of subwords, and fill it with -100, an unreachable number to avoid confusion.
-
-            current_x, current_y, label_match_id = -1, -1, -1
-            subword_counter = 0
-            prefix_counter = 0
-            if idx <= 5 and print_output:
-                print(idx)
-            
-            if len(doc_offset) > 512:
-                print("Offset wrong")
-            
-            for i, (x, y) in enumerate(doc_offset):  # We loop through the offset of each document to match the word endings.
-                if i == len(doc_offset) - 1:  # Catches the edge case in which there are 512 subwords.
-                    if (x, y) != (0, 0):
-                        label_match_id += 1
-                        doc_enc_labels[i] = doc_labels[label_match_id]
-                        if idx <= 5 and print_output:
-                            print(i, label_match_id, x, y)
-                        subword_counter = 0
-                else:
-                    next_x, next_y = doc_offset[i + 1]
-
-                    # Each new word starts with x = 0. Subsequent subwords follow the pattern y = next_x
-                    # For example (0, 1) (1, 4) (4, 6)
-                    # If a sentence does not need the full 512 subwords (most cases): the remaining ones are filled with (0,0): see edge case supra
-                    
-                    # Necessary for SentencePiece, see above.                    
-                    if prefix_subword_id is not None and encodings[idx].ids[i] == prefix_subword_id:
-                        doc_enc_labels[i] = -100
-                        prefix_counter += 1
-
-                    elif y != next_x and next_x == 0:
-                        label_match_id += 1
-                        doc_enc_labels[i] = doc_labels[label_match_id]  # Switches the initial -100 to the correct label.
-                        if idx <= 5 and print_output:
-                            print(i, label_match_id,self.tokenizer.decode(encodings.encodings[idx].ids[i - subword_counter:i + 1]),self.id2tag[doc_labels[label_match_id]])
-                        subword_counter = 0
-
-                    else:
-                        subword_counter += 1
-
-            result = 0
-            for number in doc_enc_labels:  # Sanity check: the number of labels should be equal to the number of words at the end of sentence.
-                if number != -100:
-                    result += 1
-
-            if initial_length != result:
-                logging.log(0, f"Result doesn't match length at {idx}")
-
-            encoded_labels.append(doc_enc_labels.tolist())
-
-            idx += 1
-
-        return encoded_labels
     
-    def train_classifier(self,wids,tokens,tags,output_model,epochs=3,batch_size=16):
+    def id_label_mappings(self,tags):
         unique_tags = set(tag for doc in tags for tag in doc)
         if self.ignore_label is not None:
             unique_tags.remove(self.ignore_label)
         tag2id = {tag: s_id for s_id, tag in enumerate(sorted(unique_tags))}
         id2tag = {s_id: tag for tag, s_id in tag2id.items()}
-        encodings = self.tokenizer(tokens, padding='max_length', truncation=True, max_length=512, is_split_into_words=True, return_offsets_mapping=True)
-        labels = self.encode_tags(tags, encodings, tag2id, print_output=False)
-        encodings.pop("offset_mapping")
-        train_dataset = ClassificationDataset(encodings,labels,wids)
-                
-        self.config = AutoConfig.from_pretrained(self.transformer_path, num_labels=len(unique_tags), id2label=id2tag, label2id=tag2id)
+        return tag2id, id2tag
+    
+    def tokenize_sentence(self, sentence,return_tensors=None):
+        encodings = self.tokenizer(sentence['tokens'], truncation=True, max_length=512, is_split_into_words=True, return_offsets_mapping=True,return_tensors=return_tensors)
+        return encodings
+    
+    def get_valid_subwords(self, offset, input_ids, last_subword=True, prefix_subword_id=None):
+        valid_subwords = []
+        for i, current_offset in enumerate(offset):
+            x = current_offset[0]
+            y = current_offset[1]
+            if last_subword:
+                if i == len(offset) - 1:
+                    if (x, y) != (0, 0): # Catches the edge case in which there are 512 subwords.
+                        valid_subwords.append(True)
+                    else:
+                        valid_subwords.append(False)
+                else:
+                    # Each new word starts with x = 0. Subsequent subwords follow the pattern y = next_x
+                    # For example (0, 1) (1, 4) (4, 6)
+                    # If a sentence does not need the full 512 subwords (most cases): the remaining ones are filled with (0,0): see edge case supra
+                    next_offset = offset[i + 1]
+                    next_x = next_offset[0]
+                        
+                    # Necessary for SentencePiece: if a prefix has been tokenized in a separate token, it has offset mapping (0,1) while the next one still has (0,6). As a consequence, y != next_x while the token still does not need a label.
+                    if prefix_subword_id is not None and input_ids[i] == prefix_subword_id:
+                        valid_subwords.append(False)
+        
+                    elif y != next_x and next_x == 0:
+                        valid_subwords.append(True)
+                    else:
+                        valid_subwords.append(False)
+            else:
+                # First subword strategy is substantially easier: all subwords at the beginning have offset mapping 0, !0
+                if x == 0 and y != 0:
+                    # One exception: the prefix subword of SentencePiece also has 0, !0 (i.e. 0,1)
+                    if prefix_subword_id is not None and input_ids[i] == prefix_subword_id:
+                        valid_subwords.append(False)
+                    else:
+                        valid_subwords.append(True)
+                else:
+                    valid_subwords.append(False)
+        return valid_subwords
+    
+    def align_labels(self, sentence, tag2id, last_subword=True, prefix_subword_id=None, labelname='MISC', is_tensor=False):
+        labels = sentence[labelname]
+        offset = sentence['offset_mapping']
+        input_ids = sentence['input_ids']
+        
+        if is_tensor:
+            offset = offset[0]
+            input_ids = input_ids[0]
+        
+        valid_subwords = self.get_valid_subwords(offset,input_ids,last_subword=last_subword,prefix_subword_id=prefix_subword_id)
+        
+        enc_labels = np.ones(len(valid_subwords),dtype=int) * - 100
+        
+        label_match_id = -1
+        
+        for n_subword, valid_subword in enumerate(valid_subwords):
+            if valid_subword:
+                label_match_id += 1
+                label = labels[label_match_id]
+                if not (self.ignore_label is not None and self.ignore_label==label):
+                    enc_labels[n_subword] = tag2id[label]
+        
+        sentence['labels'] = enc_labels
+        return sentence
+        
+    def train_classifier(self,output_model,train_dataset,tag2id,id2tag,epochs=3,batch_size=16):        
+        data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer)        
+        self.config = AutoConfig.from_pretrained(self.transformer_path, num_labels=len(tag2id), id2label=id2tag, label2id=tag2id)
         self.classifier_model = AutoModelForTokenClassification.from_pretrained(self.transformer_path,config=self.config)
         
-        self.classifier_model.to(self.device)
-        self.classifier_model.train()
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        optim = AdamW(self.classifier_model.parameters(), lr=5e-5)
-        
-        for epoch in range(epochs):
-        
-            for idx, batch in enumerate(train_loader):
-                optim.zero_grad()
-                input_ids = batch['input_ids'].to(self.device)
-                attention_mask = batch['attention_mask'].to(self.device)
-                labels = batch['labels'].to(self.device)
-                outputs = self.classifier_model(input_ids, attention_mask=attention_mask, labels=labels)
-        
-                loss = outputs[0]
-                loss.backward()
-                print("| epoch {:3d} | {:5d}/{:5d} batches")
-
-        self.classifier_model.save_pretrained(output_model)
-    
-    def predict(self,tokens,tags,wids,model_dir=None,batch_size=16):
-        if model_dir is not None:
-            self.classifier_model = AutoModelForTokenClassification.from_pretrained(model_dir).to(self.device)
-            self.config = AutoConfig.from_pretrained(model_dir)
-        
-        tag2id = self.config.label2id
+        training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,save_strategy='no')
+        trainer = Trainer(model=self.classifier_model,args=training_args,train_dataset=train_dataset,tokenizer=self.tokenizer,data_collator=data_collator)
+        trainer.train()
+        trainer.model.save_pretrained(save_directory=trainer.args.output_dir)
+            
+    def predict(self,test_data,model_dir=None,batch_size=16,labelname='MISC'):        
+        ##Only works when padding is set to the right!!! See below
+        self.classifier_model = AutoModelForTokenClassification.from_pretrained(model_dir)
+        self.config = AutoConfig.from_pretrained(model_dir)
         id2tag = self.config.id2label
+        tag2id = self.config.label2id
         
-        encodings = self.tokenizer(tokens, padding='max_length', truncation=True, max_length=512, is_split_into_words=True, return_offsets_mapping=True)        
-        labels = self.encode_tags(tags, encodings, tag2id, print_output=False)
-        encodings.pop("offset_mapping")
-        dataset = ClassificationDataset(encodings, labels, wids)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+        if self.unknown_label is not None:
+            tag2id[self.unknown_label] = 0
         
-        preds_total = []
-        with torch.no_grad():
-            for idx, batch in enumerate(loader):
-                input_ids = batch['input_ids'].to(self.device)
-                attention_mask = batch['attention_mask'].to(self.device)
-                labels = batch['labels'].to(self.device)
-                outputs = self.classifier_model(input_ids, attention_mask=attention_mask, labels=labels)
-                for batch_idx, batch_piece in enumerate(labels):
-                    for label_idx, label in enumerate(batch_piece):
-                        if label != -100:
-                            softmaxed_predictions = torch.nn.functional.softmax(outputs[1][batch_idx][label_idx],
-                                                                                -1).tolist()
-                            preds = {}
-                            for index, pred in enumerate(softmaxed_predictions):
-                                preds[id2tag[index]] = pred
-                            preds_total.append(preds)
-        return preds_total
+        test_data = test_data.map(self.align_labels,fn_kwargs={"prefix_subword_id":self.prefix_subword_id,"tag2id":tag2id,"labelname":labelname})
+        
+        data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer)
+        training_args = TrainingArguments(output_dir=self.model_dir,per_device_eval_batch_size=batch_size)
+        trainer = Trainer(model=self.classifier_model,args=training_args,tokenizer=self.tokenizer,data_collator=data_collator)
+        
+        predictions = trainer.predict(test_data)
+        softmaxed_predictions = torch.nn.functional.softmax(torch.from_numpy(predictions.predictions),dim=-1).tolist()
+        
+        # This only works when padding is set to the right, since the padded predictions will be longer than valid_subword
+        all_preds = []
+        for sent_no, sent in enumerate(test_data):
+            valid_subwords = self.get_valid_subwords(sent['offset_mapping'],sent['input_ids'],prefix_subword_id=self.prefix_subword_id)
+            for subword_no, valid_subword in enumerate(valid_subwords):
+                if valid_subword:
+                    # If a (sub)word has the label defined by ignore_label, it is also set to -100 with classifier.align_labels, even though it is counted as a valid subword
+                    if not ('labels' in sent and sent['labels'][subword_no] == -100):
+                        preds = {}
+                        for prob_n, prob in enumerate(softmaxed_predictions[sent_no][subword_no]):
+                            classname = id2tag[prob_n]
+                            preds[classname] = prob
+                        all_preds.append(preds)
+        
+        return all_preds
+        
     
     def write_prediction(self,wids,tokens,tags,preds,output_file,output_format):
         with open(output_file, 'w', encoding='UTF-8') as outfile:
@@ -229,21 +209,29 @@ if __name__ == '__main__':
             print('Training data is missing')
         else:
             classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols)
-            wids, tokens, tags = classifier.reader.read_tags('MISC', classifier.training_data, False)
+            tokens, tags = classifier.reader.read_tags('MISC', classifier.training_data, in_feats=False,return_wids=False)
+            tag_dict = {'MISC':tags}
             tokens_norm = tokens
             if args.normalization_rule is not None:
                 tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
-            classifier.train_classifier(wids,tokens_norm,tags,classifier.model_dir,args.epochs,args.batch_size)
+            tag2id, id2tag = classifier.id_label_mappings(tags)
+            training_data = Datasets.build_dataset(tokens_norm,tag_dict)
+            training_data = training_data.map(classifier.tokenize_sentence)
+            training_data = training_data.map(classifier.align_labels,fn_kwargs={"prefix_subword_id":classifier.prefix_subword_id,"tag2id":tag2id})
+            classifier.train_classifier(classifier.model_dir,training_data,tag2id=tag2id,id2tag=id2tag,epochs=args.epochs,batch_size=args.batch_size)
     elif args.mode == 'test':
         if args.test_data == None:
             print('Test data is missing')
         else:
             classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols)
             wids, tokens, tags = classifier.reader.read_tags('MISC', classifier.test_data, False)
+            tags_dict = {'MISC':tags}
             tokens_norm = tokens
             if args.normalization_rule is not None:
                 tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
-            prediction = classifier.predict(tokens_norm,tags,wids,model_dir=classifier.model_dir,batch_size=args.batch_size)
+            test_data = Datasets.build_dataset(tokens,tags_dict)
+            test_data = test_data.map(classifier.tokenize_sentence)
+            prediction = classifier.predict(test_data,model_dir=classifier.model_dir,batch_size=args.batch_size)
             if args.output_file is not None:
                 classifier.write_prediction(wids,tokens,tags,prediction,args.output_file,args.output_format)
                 

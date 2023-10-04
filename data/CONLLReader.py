@@ -30,7 +30,7 @@ class CONLLReader:
         raw_sents = re.split(r'\n\n', raw_text)
         return raw_sents
     
-    def read_tags(self, feature, data, in_feats=False, return_tags=True, return_words=True):
+    def read_tags(self, feature, data, in_feats=False, return_wids=True, return_tokens=True, return_tags=True):
         # Reads the values for a given feature (UPOS, XPOS or morphological) from the training set, as well as the wids and forms
         wid_sents = []
         token_sents = []
@@ -42,8 +42,9 @@ class CONLLReader:
             tags = []
             for line in sent.split("\n"):
                 split = line.split("\t")
-                if return_words:
+                if return_wids:
                     wids.append(split[self.feature_cols['ID']])
+                if return_tokens:
                     tokens.append(split[self.feature_cols['FORM']])
                 if return_tags:
                     if not in_feats:
@@ -69,10 +70,25 @@ class CONLLReader:
             wid_sents.append(wids)
             token_sents.append(tokens)
             tag_sents.append(tags)
-
-        if return_tags and return_words:
-            return wid_sents, token_sents, tag_sents
-        elif return_tags:
-            return tag_sents
+            
+        if return_wids:
+            if return_tokens:
+                if return_tags:
+                    return wid_sents, token_sents, tag_sents
+                else:
+                    return wid_sents, token_sents
+            elif return_tags:
+                return wid_sents, tag_sents
+            else:
+                return wid_sents
         else:
-            return wid_sents, token_sents
+            if return_tokens:
+                if return_tags:
+                    return token_sents, tag_sents
+                else:
+                    return token_sents
+            else:
+                if return_tags:
+                    return tag_sents
+                else:
+                    return None

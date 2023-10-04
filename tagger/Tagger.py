@@ -4,12 +4,11 @@ from data.CONLLReader import CONLLReader
 from classification.Classifier import Classifier
 from tokenization import Tokenization
 import unicodedata as ud
-import multiprocessing
-from functools import partial
 import os
 from transformers import AutoConfig
 from argparse import ArgumentParser
 from lexicon.LexiconProcessor import LexiconProcessor
+from data import Datasets
 
 class Tagger:
 
@@ -42,57 +41,60 @@ class Tagger:
         self.normalization_rule = normalization_rule
 
     
-    def tag_individual_feat(self,feat,wids,tokens):
+    def tag_individual_feat(self,feat,test_data,batch_size=16):
         feature_classifier = Classifier(self.transformer_path,tokenizer_path=self.tokenizer_path,unknown_label=self.unknown_label,model_dir=self.model_dir)
-        if self.test_data is not None:
-            if feat == 'UPOS' or feat == 'XPOS':
-                tags = self.reader.read_tags(feat, self.test_data, return_words=False)
-            else:
-                tags = self.reader.read_tags(feat, self.test_data, in_feats=True, return_words=False)
-        else:
-            tags = []
-            for sent in tokens:
-                tag_sent = []
-                for word in sent:
-                    tag_sent.append(self.unknown_label)
-                tags.append(tag_sent)
-        preds = feature_classifier.predict(tokens,tags,wids,model_dir=f"{self.model_dir}/{feat}")
+        preds = feature_classifier.predict(test_data,model_dir=f"{self.model_dir}/{feat}",batch_size=batch_size,labelname=feat)
         return (feat, preds)
     
-    def tag_seperately(self,wids,tokens,multicore=False):
+    def tag_seperately(self,tokens,batch_size=16):
+        tag_dict = {}
+        for feat in self.feature_dict:
+            tags = []
+            if self.test_data is not None:
+                if feat == 'UPOS' or feat == 'XPOS':
+                    tags = self.reader.read_tags(feat, self.test_data, return_wids=False, return_tokens=False)
+                else:
+                    tags = self.reader.read_tags(feat, self.test_data, in_feats=True, return_wids=False, return_tokens=False)
+            else:
+                for sent in tokens:
+                    tag_sent = []
+                    for word in sent:
+                        tag_sent.append(self.unknown_label)
+                    tags.append(tag_sent)
+            tag_dict[feat] = tags
+        test_data = Datasets.build_dataset(tokens,tag_dict)
+        # This is not very elegant, but tokenized_string is 'locked behind' classifier. Maybe it's better to move to another class e.g. Tokenization? I'm not sure if this is the best way to do so though since this contains methods not specific for transformers.
+        classifier = Classifier(self.transformer_path,None,self.tokenizer_path)
+        test_data = test_data.map(classifier.tokenize_sentence)
         all_preds = {}
-        if multicore:
-            pool = multiprocessing.Pool()
-            func = partial(self.tag_individual_feat, wids=wids, tokens=tokens)
-            results = pool.map(func, self.feature_dict)
-            for result in results:
-                all_preds[result[0]] = result[1]
-        else:
-            for feat in self.feature_dict:
-                result = self.tag_individual_feat(feat,wids,tokens)
-                all_preds[result[0]] = result[1]
-                print('Predicted '+feat)
+        for feat in self.feature_dict:
+            result = self.tag_individual_feat(feat,test_data,batch_size=batch_size)
+            all_preds[result[0]] = result[1]
+            print('Predicted '+feat)
         return all_preds
-    
-    def train_individual_feat(self,feat,batch_size,epochs,normalization_rule=None):
-        feat_classifier = Classifier(transformer_path=self.transformer_path,model_dir=self.model_dir,tokenizer_path=self.tokenizer_path)
-        if feat=='UPOS' or feat=='XPOS':
-            wids, tokens, tags = self.reader.read_tags(feat,self.training_data)
-        else:
-            wids, tokens, tags = self.reader.read_tags(feat,self.training_data,in_feats=True)
+        
+    def train_separate_models(self,tokens,batch_size=16,epochs=3,normalization_rule=None):
         tokens_norm = tokens
         if normalization_rule is not None:
             tokens_norm = Tokenization.normalize_tokens(tokens, normalization_rule)
-        feat_classifier.train_classifier(wids, tokens_norm, tags, output_model=f"{self.model_dir}/{feat}",batch_size=batch_size,epochs=epochs)
-        
-    def train_separate_models(self,batch_size=16,epochs=3,multicore=False,normalization_rule=None):
-        if multicore:
-            pool = multiprocessing.Pool()
-            func = partial(self.train_individual_feat, batch_size=batch_size, epochs=epochs,normalization_rule=normalization_rule)
-            pool.map(func, self.feature_dict)        
-        else:
-            for feat in self.feature_dict:
-                self.train_individual_feat(feat,batch_size,epochs,normalization_rule=normalization_rule)
+        feat_classifier = Classifier(transformer_path=self.transformer_path,model_dir=self.model_dir,tokenizer_path=self.tokenizer_path)
+        tag_dict = {}
+        tag2id_all = {}
+        id2tag_all = {}
+        for feat in self.feature_dict:
+            if feat=='UPOS' or feat=='XPOS':
+                tags = self.reader.read_tags(feat,self.training_data,return_wids=False,return_tokens=False)
+            else:
+                tags = self.reader.read_tags(feat,self.training_data,in_feats=True,return_wids=False,return_tokens=False)
+            tag_dict[feat] = tags
+            tag2id, id2tag = feat_classifier.id_label_mappings(tags)
+            tag2id_all[feat] = tag2id
+            id2tag_all[feat] = id2tag
+        training_data = Datasets.build_dataset(tokens_norm, tag_dict)
+        training_data = training_data.map(feat_classifier.tokenize_sentence)
+        for feat in self.feature_dict:
+            training_data_feat = training_data.map(feat_classifier.align_labels,fn_kwargs={"prefix_subword_id":feat_classifier.prefix_subword_id,"tag2id":tag2id_all[feat],"labelname":feat})
+            feat_classifier.train_classifier(f"{self.model_dir}/{feat}",training_data_feat,tag2id=tag2id_all[feat],id2tag=id2tag_all[feat],batch_size=batch_size,epochs=epochs)
         
     def build_feature_dict(self):
         # Builds a dictionary with all tagging features and their possible values, based on the training data or the saved tagger models. This might be unnecessary: it is not clear to me anymore why we need the possible_values instead of only the names of the features. Maybe just for diagnostic purposes?
@@ -252,9 +254,9 @@ class Tagger:
             tags_gold = dict()
             for feat in self.feature_dict:
                 if feat == 'UPOS' or feat == 'XPOS':
-                    tags_gold[feat] = self.reader.read_tags(feat, self.test_data, return_words=False)
+                    tags_gold[feat] = self.reader.read_tags(feat, self.test_data, return_tokens=False, return_wids=False)
                 else:
-                    tags_gold[feat] = self.reader.read_tags(feat, self.test_data, in_feats=True, return_words=False)
+                    tags_gold[feat] = self.reader.read_tags(feat, self.test_data, in_feats=True, return_tokens=False, return_wids=False)
         with open(output_file, 'w', encoding='UTF-8') as outfile:
             if output_format == 'tab':
                 outfile.write("id\ttoken\tprobability\tpossibilities\tin_lexicon")
@@ -430,7 +432,6 @@ if __name__ == '__main__':
     arg_parser.add_argument('--normalization_rule',help='normalize tokens during training/testing, normalization rules implemented are greek_glaux and standard NFD/NFKD/NFC/NFKC')
     arg_parser.add_argument('--epochs',help='number of epochs for training, defaults to 3',type=int,default=3)
     arg_parser.add_argument('--batch_size',help='batch size for training/testing, defaults to 16',type=int,default=16)
-    arg_parser.add_argument('--multicore',help='whether to train multicore or not',action="store_true")
     args = arg_parser.parse_args()
     feats = None
     if args.feats is not None:
@@ -440,7 +441,8 @@ if __name__ == '__main__':
             print('Training data is missing')
         else:
             tagger = Tagger(training_data=args.training_data,tokenizer_path=args.tokenizer_path,transformer_path=args.transformer_path,feats=feats,model_dir=args.model_dir)
-            tagger.train_separate_models(batch_size=args.batch_size,epochs=args.epochs,multicore=args.multicore,normalization_rule=args.normalization_rule)
+            tokens = tagger.reader.read_tags(feature=None, data=tagger.training_data, return_wids=False, return_tags=False)
+            tagger.train_separate_models(tokens,batch_size=args.batch_size,epochs=args.epochs,normalization_rule=args.normalization_rule)
     elif args.mode == 'test':
         if args.test_data == None:
             print('Test data is missing')
@@ -450,7 +452,7 @@ if __name__ == '__main__':
             tokens_norm = tokens
             if args.normalization_rule is not None:
                 tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
-            all_preds = tagger.tag_seperately(wids, tokens_norm, args.multicore)
+            all_preds = tagger.tag_seperately(tokens_norm, batch_size=args.batch_size)
             best_tags, num_poss = tagger.tag_data(tokens_norm,all_preds,False,True)
             if args.output_file is not None:
                 tagger.write_prediction(wids, tokens, tokens_norm, best_tags, args.output_file, args.output_format, num_poss)
