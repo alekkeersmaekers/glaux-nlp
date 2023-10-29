@@ -41,10 +41,6 @@ class Classifier:
         id2tag = {s_id: tag for tag, s_id in tag2id.items()}
         return tag2id, id2tag
     
-    def tokenize_sentence(self, sentence,return_tensors=None):
-        encodings = self.tokenizer(sentence['tokens'], truncation=True, max_length=512, is_split_into_words=True, return_offsets_mapping=True,return_tensors=return_tensors)
-        return encodings
-    
     def get_valid_subwords(self, offset, input_ids, last_subword=True, prefix_subword_id=None):
         valid_subwords = []
         for i, current_offset in enumerate(offset):
@@ -108,12 +104,12 @@ class Classifier:
         sentence['labels'] = enc_labels
         return sentence
         
-    def train_classifier(self,output_model,train_dataset,tag2id,id2tag,epochs=3,batch_size=16):        
+    def train_classifier(self,output_model,train_dataset,tag2id,id2tag,epochs=3,batch_size=16,learning_rate=5e-5):        
         data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer)        
         self.config = AutoConfig.from_pretrained(self.transformer_path, num_labels=len(tag2id), id2label=id2tag, label2id=tag2id)
         self.classifier_model = AutoModelForTokenClassification.from_pretrained(self.transformer_path,config=self.config)
         
-        training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,save_strategy='no')
+        training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,learning_rate=learning_rate,save_strategy='no')
         trainer = Trainer(model=self.classifier_model,args=training_args,train_dataset=train_dataset,tokenizer=self.tokenizer,data_collator=data_collator)
         trainer.train()
         trainer.model.save_pretrained(save_directory=trainer.args.output_dir)
@@ -154,10 +150,13 @@ class Classifier:
         return all_preds
         
     
-    def write_prediction(self,wids,tokens,tags,preds,output_file,output_format):
+    def write_prediction(self,wids,tokens,tags,preds,output_file,output_format,output_sentence=True):
         with open(output_file, 'w', encoding='UTF-8') as outfile:
             if output_format == 'tab':
-                outfile.write("id\ttoken\tgold\tprediction\tprobability\n")
+                outfile.write("id\ttoken\tgold\tprediction\tprobability")
+                if output_sentence:
+                    outfile.write("\tsentence")
+                outfile.write('\n')
             word_no = -1
             for sent_id, sent in enumerate(tokens):
                 for word_id, word in enumerate(sent):
@@ -176,7 +175,18 @@ class Classifier:
                         elif output_format == 'simple':
                             outfile.write(wid + "\t" + word + "\t"+top_prediction[0]+"\n")
                         elif output_format == 'tab':
-                            outfile.write(wid + "\t" + word + "\t" + tag +"\t" + top_prediction[0] + "\t" + f"{top_prediction[1]:.5f}"+"\n")
+                            outfile.write(wid + "\t" + word + "\t" + tag +"\t" + top_prediction[0] + "\t" + f"{top_prediction[1]:.5f}")
+                            if output_sentence:
+                                sent_str = ''
+                                for word_id_2, word_2 in enumerate(sent):
+                                    if word_id_2 == word_id:
+                                        sent_str+='['
+                                    sent_str+= word_2
+                                    if word_id_2 == word_id:
+                                        sent_str+=']'
+                                    sent_str+= ' '
+                                outfile.write('\t'+sent_str.strip())
+                            outfile.write('\n')
                 if output_format == 'CONLL' or output_format == 'simple':
                     outfile.write('\n')
                         
@@ -197,6 +207,7 @@ if __name__ == '__main__':
     arg_parser.add_argument('--normalization_rule',help='normalize tokens during training/testing, normalization rules implemented are greek_glaux and standard NFD/NFKD/NFC/NFKC')
     arg_parser.add_argument('--epochs',help='number of epochs for training, defaults to 3',type=int,default=3)
     arg_parser.add_argument('--batch_size',help='batch size for training/testing, defaults to 16',type=int,default=16)
+    arg_parser.add_argument('--learning_rate',help='learning rate for training, defaults to 5e-5',type=float,default=5e-5)
     args = arg_parser.parse_args()
     feature_cols = args.feature_cols
     if feature_cols is not None:
@@ -216,9 +227,9 @@ if __name__ == '__main__':
                 tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
             tag2id, id2tag = classifier.id_label_mappings(tags)
             training_data = Datasets.build_dataset(tokens_norm,tag_dict)
-            training_data = training_data.map(classifier.tokenize_sentence)
+            training_data = training_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":classifier.tokenizer})
             training_data = training_data.map(classifier.align_labels,fn_kwargs={"prefix_subword_id":classifier.prefix_subword_id,"tag2id":tag2id})
-            classifier.train_classifier(classifier.model_dir,training_data,tag2id=tag2id,id2tag=id2tag,epochs=args.epochs,batch_size=args.batch_size)
+            classifier.train_classifier(classifier.model_dir,training_data,tag2id=tag2id,id2tag=id2tag,epochs=args.epochs,batch_size=args.batch_size,learning_rate=args.learning_rate)
     elif args.mode == 'test':
         if args.test_data == None:
             print('Test data is missing')
@@ -230,7 +241,7 @@ if __name__ == '__main__':
             if args.normalization_rule is not None:
                 tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
             test_data = Datasets.build_dataset(tokens,tags_dict)
-            test_data = test_data.map(classifier.tokenize_sentence)
+            test_data = test_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":classifier.tokenizer})
             prediction = classifier.predict(test_data,model_dir=classifier.model_dir,batch_size=args.batch_size)
             if args.output_file is not None:
                 classifier.write_prediction(wids,tokens,tags,prediction,args.output_file,args.output_format)

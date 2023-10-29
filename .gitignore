@@ -5,3 +5,5 @@
 /.pydevproject
 /*/__pycache__/*
 /tests/*
+/classification/Tester.py
+/tagger/Tester.py

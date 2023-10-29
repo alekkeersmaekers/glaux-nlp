@@ -2,7 +2,7 @@ from tagger.Tagger import Tagger
 from lexicon.LexiconProcessor import LexiconProcessor
 from data.CONLLReader import CONLLReader
 import os
-from transformers import AutoConfig, DataCollatorForTokenClassification, AutoModelForTokenClassification, TrainingArguments, Trainer
+from transformers import AutoConfig, DataCollatorForTokenClassification, AutoModelForTokenClassification, TrainingArguments, Trainer, AutoModel
 from itertools import product
 from classification.Classifier import Classifier
 from tokenization.Tokenization import normalize_tokens
@@ -17,46 +17,170 @@ from datasets import Dataset, DatasetDict
 
 from tqdm import tqdm
 
+from data import Datasets
+
+import random
+
+from tokenization import Tokenization
+
+from transformers import AutoTokenizer
+
+def align_wids_subwords(sentence, prefix_subword_id=None):
+    wids = sentence['wids']
+    input_ids = sentence['input_ids'][0]
+    offset = sentence['offset_mapping'][0]
+    wids_subwords = []
+    id = -1
+    for i, current_offset in enumerate(offset):
+        x = current_offset[0]
+        y = current_offset[1]
+        if(x==0 and y!=0):
+            id+=1
+            wids_subwords.append(wids[id])
+        elif(x==0 and y==0):
+            wids_subwords.append('-1')
+        elif(x!=0):
+            wids_subwords.append(wids[id])
+        if prefix_subword_id is not None and input_ids[i] == prefix_subword_id:
+            id-=1
+    sentence['wids_subwords'] =  wids_subwords
+    return sentence
+
+def get_embeddings(sentence,model):
+    with torch.no_grad():
+        output = model(input_ids=sentence['input_ids'],token_type_ids=sentence['token_type_ids'],attention_mask=sentence['attention_mask'])
+    states = output.hidden_states
+    embeddings = torch.stack(states).squeeze().permute(1,0,2)
+    sentence['embeddings'] = embeddings
+    return sentence
+
+def get_vector(sentence,wid,layers=[-2],layer_combination_method='sum',subwords_combination_method='mean'):
+    ids = []
+    for no, subword_id in enumerate(sentence['wids_subwords']):
+        if subword_id == wid:
+            ids.append(no)
+    vectors = []
+    embeddings = sentence['embeddings']
+    for i in ids:
+        vectors.append(embeddings[i])
+    if subwords_combination_method == 'mean':
+        vector = torch.mean(torch.stack(vectors),dim=0)
+    elif subwords_combination_method == 'first':
+        vector = vectors[0]
+    elif subwords_combination_method == 'last':
+        vector = vectors[-1]
+    vector_layers = []
+    for layer in layers:
+        vector_layers.append(vector[layer])
+    if layer_combination_method == 'concatenate':
+        return torch.cat(vector_layers,dim=0).numpy()
+    elif layer_combination_method == 'sum':
+        return torch.sum(torch.stack(vector_layers),dim=0).numpy()
+
+def extract_vectors(dataset,output_file,limit_wids=None,limit_labels=None,label_name='MISC',layers=[-2],layer_combination_method='sum',subwords_combination_method='mean'):
+    with open(output_file, 'w', encoding='UTF-8') as outfile:
+        for sent in dataset:
+            if limit_wids is not None:
+                for word_no, wid in enumerate(sent['wids']):
+                    if wid in limit_wids:
+                        vector = get_vector(sent,wid,layers=layers,layer_combination_method=layer_combination_method,subwords_combination_method=subwords_combination_method)
+                        outfile.write(wid+'\t'+sent[label_name][word_no])
+                        for element in vector:
+                            outfile.write("\t"+"{:0.5f}".format(element))
+                        outfile.write('\n')
+            elif limit_labels is not None:
+                for word_no, wid in enumerate(sent['wids']):
+                    label = sent[label_name][word_no]
+                    if label in limit_labels:
+                        vector = get_vector(sent,wid,layers=layers,layer_combination_method=layer_combination_method,subwords_combination_method=subwords_combination_method)
+                        outfile.write(wid+'\t'+label)
+                        for element in vector:
+                            outfile.write("\t"+"{:0.5f}".format(element))
+                        outfile.write('\n')
+            else:
+                for word_no, wid in enumerate(sent['wids']):
+                    vector = get_vector(sent,wid,layers=layers,layer_combination_method=layer_combination_method,subwords_combination_method=subwords_combination_method)
+                    outfile.write(wid+'\t'+sent[label_name][word_no])
+                    for element in vector:
+                        outfile.write("\t"+"{:0.5f}".format(element))
+                    outfile.write('\n')
+
 if __name__ == '__main__':
     
-    classifier = Classifier(transformer_path='C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model',model_dir='C:/Users/u0111778/Documents/LanguageModels/test_wsd',tokenizer_path='C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model/tokenizer',test_data='C:/Users/u0111778/OneDrive - KU Leuven/Treebank/RANLP/WSD/TestData_glossa_wsd.txt',ignore_label='_',unknown_label='[UNK]',feature_cols={'ID':1,'FORM':2,'MISC':3})
-        
-    wids,tokens, tags = classifier.reader.read_tags('MISC', classifier.test_data, in_feats=False)
-    tokens_norm = tokens
-    tags_dict = {'MISC':tags}
-    test_data = classifier.build_dataset(tokens,tags_dict)
-    test_data = test_data.map(classifier.tokenize_sentence)
-    #test_data = test_data.map(classifier.tokenize_sentence,fn_kwargs={'return_tensors':'pt'})
-    #test_data.set_format("pt",columns=["input_ids"],output_all_columns=True)
+    #reader = CONLLReader(feature_cols={'ID':1,'FORM':2,'MISC':3})
+    #tokenizer = AutoTokenizer.from_pretrained('C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model/tokenizer')
+    #data = reader.parse_conll('C:/Users/u0111778/OneDrive - KU Leuven/Colleges/Computerlinguistiek voor klassieke talen/Materiaal 2022/Semantics/Data_Kosmos_Form.txt')
+    #wids, tokens, tags = reader.read_tags('MISC',data,in_feats=False)
+    #tokens = Tokenization.normalize_tokens(tokens, 'greek_glaux')
+    #dataset = Datasets.build_dataset(tokens, {'MISC':tags}, wids)
+    #dataset = dataset.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":tokenizer,"return_tensors":'pt'})
+    #prefix_subword_id = tokenizer.convert_tokens_to_ids('▁')
+    #print(dataset)
+    #dataset = dataset.map(align_wids_subwords,fn_kwargs={"prefix_subword_id":prefix_subword_id})
+    #dataset.set_format("pt", columns=["input_ids","token_type_ids","attention_mask"], output_all_columns=True)
+    #print(dataset)
+    #model = AutoModel.from_pretrained('C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model',output_hidden_states = True)
+    #model.eval()
+    #dataset = dataset.map(get_embeddings,fn_kwargs={"model":model})
+    #print(dataset[0]['embeddings'].size())
+    #extract_vectors(dataset,r'C:\Users\u0111778\Documents\LanguageModels\test_wsd\dataset_kosmos_vecs_conc1234layer.txt',limit_labels=['order','world','decoration'],layers=[1,2,3,4],layer_combination_method='concatenate')
     
-    classifier.classifier_model = AutoModelForTokenClassification.from_pretrained(classifier.model_dir)
-    classifier.config = AutoConfig.from_pretrained(classifier.model_dir)
-    id2tag = classifier.config.id2label
     
-    test_data = test_data.map(classifier.align_labels,fn_kwargs={"prefix_subword_id":classifier.prefix_subword_id,"tag2id":classifier.config.label2id})
+    #classifier = Classifier(transformer_path='C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model',model_dir='C:/Users/u0111778/Documents/LanguageModels/test_wsd',tokenizer_path='C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model/tokenizer',training_data='C:/Users/u0111778/OneDrive - KU Leuven/Colleges/Computerlinguistiek voor klassieke talen/Materiaal 2022/Semantics/Data_Kosmos_Form.txt',ignore_label='_',unknown_label='[UNK]',feature_cols={'ID':1,'FORM':2,'MISC':3})
+    #random.Random(123).shuffle(classifier.training_data)
     
-    labels_name = 'MISC'
+    #wids, tokens, tags = classifier.reader.read_tags('MISC', classifier.training_data, in_feats=False)
+    #tag2id, id2tag = classifier.id_label_mappings(tags)
+    #training_data = Datasets.build_dataset(tokens,{'MISC':tags})
+    #training_data = training_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":classifier.tokenizer})
+    #training_data = training_data.map(classifier.align_labels,fn_kwargs={"prefix_subword_id":classifier.prefix_subword_id,"tag2id":tag2id})
     
-    data_collator = DataCollatorForTokenClassification(tokenizer=classifier.tokenizer)
-    training_args = TrainingArguments(output_dir=classifier.model_dir,per_device_eval_batch_size=16)
-    trainer = Trainer(model=classifier.classifier_model,args=training_args,tokenizer=classifier.tokenizer,data_collator=data_collator)
-    predictions = trainer.predict(test_data)
-    softmaxed_predictions = torch.nn.functional.softmax(torch.from_numpy(predictions.predictions),dim=-1).tolist()
-    # This only works when padding is set to the right, since the padded predictions will be longer than valid_subword
-    all_preds = []
-    for sent_no, sent in enumerate(test_data):
-        valid_subwords = classifier.get_valid_subwords(sent['offset_mapping'],sent['input_ids'],prefix_subword_id=classifier.prefix_subword_id)
-        for subword_no, valid_subword in enumerate(valid_subwords):
-            if valid_subword:
-                # If a (sub)word has the label defined by ignore_label, it is also set to -100 with classifier.align_labels, even though it is counted as a valid subword
-                if not ('labels' in sent and sent['labels'][subword_no] == -100):
-                    preds = {}
-                    for prob_n, prob in enumerate(softmaxed_predictions[sent_no][subword_no]):
-                        classname = id2tag[prob_n]
-                        preds[classname] = prob
-                    all_preds.append(preds)
+    #n_fold = 10
+    #fold_size = int(len(training_data) / n_fold)
+    #folds = []
+    #index = 0
+    #for i in range(n_fold):
+    #    data = {}
+    #    start = index
+    #    end = index + fold_size
+    #    if i+1 == n_fold or end > (len(training_data)):
+    #        end = len(training_data)
+    #    rows = range(start,end)
+    #    data['test'] = training_data.select(i for i in rows)
+    #    data['train'] = training_data.select(i for i in range(len(training_data)) if i not in rows)
+    #    folds.append(data)
+    #    index = index + fold_size
     
-    classifier.write_prediction(wids,tokens,tags,all_preds,'C:/Users/u0111778/Documents/LanguageModels/test_wsd.txt','tab')
+    #n_epochs=[3]
+    #batch_sizes=[16]
+    #learning_rates = [2e-4]
+    #data_collator = DataCollatorForTokenClassification(tokenizer=classifier.tokenizer)
+    #classifier.config = AutoConfig.from_pretrained(classifier.transformer_path, num_labels=len(tag2id), id2label=id2tag, label2id=tag2id)
+    #for epochs in n_epochs:
+    #    for batch_size in batch_sizes:
+    #        for learning_rate in learning_rates:
+    #            predictions_folds = []
+    #            for fold_index, fold in enumerate(folds):
+    #                classifier.classifier_model = AutoModelForTokenClassification.from_pretrained(classifier.transformer_path,config=classifier.config)
+    #                training_args = TrainingArguments(output_dir=classifier.model_dir,num_train_epochs=epochs,per_device_train_batch_size=batch_size,per_device_eval_batch_size=32,learning_rate=learning_rate,save_strategy='no',fp16=True, gradient_checkpointing=True)
+    #                trainer = Trainer(model=classifier.classifier_model,args=training_args,train_dataset=fold['train'],tokenizer=classifier.tokenizer,data_collator=data_collator)
+    #                trainer.train()
+    #                predictions = trainer.predict(fold['test'])
+    #                softmaxed_predictions = torch.nn.functional.softmax(torch.from_numpy(predictions.predictions),dim=-1).tolist()
+    #                all_preds = []
+    #                for sent_no, sent in enumerate(fold['test']):
+    #                    valid_subwords = classifier.get_valid_subwords(sent['offset_mapping'],sent['input_ids'],prefix_subword_id=classifier.prefix_subword_id)
+    #                    for subword_no, valid_subword in enumerate(valid_subwords):
+    #                        if valid_subword:
+                        # If a (sub)word has the label defined by ignore_label, it is also set to -100 with classifier.align_labels, even though it is counted as a valid subword
+    #                            if not ('labels' in sent and sent['labels'][subword_no] == -100):
+    #                                preds = {}
+    #                                for prob_n, prob in enumerate(softmaxed_predictions[sent_no][subword_no]):
+    #                                    classname = id2tag[prob_n]
+    #                                    preds[classname] = prob
+    #                                all_preds.append(preds)
+    #                predictions_folds.extend(all_preds)
+    #            classifier.write_prediction(wids,tokens,tags,predictions_folds,f'C:/Users/u0111778/Documents/LanguageModels/test_wsd/predictions_kosmos_{epochs}_{batch_size}_{learning_rate}.txt','tab')
         
     #preds_total = []
     #with torch.no_grad():

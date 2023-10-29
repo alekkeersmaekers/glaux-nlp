@@ -1,6 +1,10 @@
 import re
 import unicodedata
 
+def tokenize_sentence(sentence, tokenizer, return_tensors=None):
+    encodings = tokenizer(sentence['tokens'], truncation=True, max_length=512, is_split_into_words=True, return_offsets_mapping=True,return_tensors=return_tensors)
+    return encodings
+
 def normalize_greek_nfd(word):
     word_norm = ''
     for c in word:
@@ -51,8 +55,8 @@ def normalize_greek_punctuation(word):
     word = re.sub(r'[“”„‘«»ʽ"]', '"',word)
     word = re.sub(r'[:··•˙]', '·',word)
     word = re.sub(';', ';',word)
-    word = re.sub(r'[（\(]', r'\(',word)
-    word = re.sub(r'[）\)]', r'\)',word)
+    word = re.sub(r'[（\(]', r'(',word)
+    word = re.sub(r'[）\)]', r')',word)
     return word
 
 def greek_glaux_to_tokens(string):

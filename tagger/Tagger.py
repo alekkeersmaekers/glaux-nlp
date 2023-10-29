@@ -65,7 +65,7 @@ class Tagger:
         test_data = Datasets.build_dataset(tokens,tag_dict)
         # This is not very elegant, but tokenized_string is 'locked behind' classifier. Maybe it's better to move to another class e.g. Tokenization? I'm not sure if this is the best way to do so though since this contains methods not specific for transformers.
         classifier = Classifier(self.transformer_path,None,self.tokenizer_path)
-        test_data = test_data.map(classifier.tokenize_sentence)
+        test_data = test_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":classifier.tokenizer})
         all_preds = {}
         for feat in self.feature_dict:
             result = self.tag_individual_feat(feat,test_data,batch_size=batch_size)
@@ -91,7 +91,7 @@ class Tagger:
             tag2id_all[feat] = tag2id
             id2tag_all[feat] = id2tag
         training_data = Datasets.build_dataset(tokens_norm, tag_dict)
-        training_data = training_data.map(feat_classifier.tokenize_sentence)
+        training_data = training_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":feat_classifier.tokenizer})
         for feat in self.feature_dict:
             training_data_feat = training_data.map(feat_classifier.align_labels,fn_kwargs={"prefix_subword_id":feat_classifier.prefix_subword_id,"tag2id":tag2id_all[feat],"labelname":feat})
             feat_classifier.train_classifier(f"{self.model_dir}/{feat}",training_data_feat,tag2id=tag2id_all[feat],id2tag=id2tag_all[feat],batch_size=batch_size,epochs=epochs)
