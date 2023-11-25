@@ -2,7 +2,7 @@ from tagger.Tagger import Tagger
 from lexicon.LexiconProcessor import LexiconProcessor
 from data.CONLLReader import CONLLReader
 import os
-from transformers import AutoConfig, DataCollatorForTokenClassification, AutoModelForTokenClassification, TrainingArguments, Trainer, AutoModel
+from transformers import AutoConfig, DataCollatorForTokenClassification, AutoModelForTokenClassification, TrainingArguments, Trainer, AutoModel, DebertaV2Tokenizer
 from itertools import product
 from classification.Classifier import Classifier
 from tokenization.Tokenization import normalize_tokens
@@ -106,7 +106,12 @@ def extract_vectors(dataset,output_file,limit_wids=None,limit_labels=None,label_
                     outfile.write('\n')
 
 if __name__ == '__main__':
-    
+        
+    tagger = Tagger(training_data=r'C:\Users\u0111778\OneDrive - KU Leuven\Colleges\Computerlinguistiek voor klassieke talen\Morfologie\Latijn\train.txt',test_data=r'C:\Users\u0111778\OneDrive - KU Leuven\Colleges\Computerlinguistiek voor klassieke talen\Morfologie\Latijn\test.txt',transformer_path='bowphs/LaBerta',tokenizer_path='bowphs/LaBerta',feats=['XPOS','FEATS'],model_dir='C:/Users/u0111778/Documents/Corpora/Latijn/models')
+    tagger.reader.feature_cols['ID'] = 9
+    tokens = tagger.reader.read_tags(feature=None, data=tagger.training_data, return_wids=False, return_tags=False)
+    tagger.train_separate_models(tokens,tokenizer_add_prefix_space=True)
+        
     #reader = CONLLReader(feature_cols={'ID':1,'FORM':2,'MISC':3})
     #tokenizer = AutoTokenizer.from_pretrained('C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model/tokenizer')
     #data = reader.parse_conll('C:/Users/u0111778/OneDrive - KU Leuven/Colleges/Computerlinguistiek voor klassieke talen/Materiaal 2022/Semantics/Data_Kosmos_Form.txt')

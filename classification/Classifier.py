@@ -2,6 +2,7 @@ import numpy as np
 from transformers import AutoTokenizer, AutoModelForTokenClassification, AutoConfig, TrainingArguments, Trainer, DataCollatorForTokenClassification
 from data.CONLLReader import CONLLReader
 import torch
+import argparse
 from argparse import ArgumentParser
 import json
 from tokenization import Tokenization
@@ -9,12 +10,12 @@ from data import Datasets
 
 class Classifier:
     
-    def __init__(self,transformer_path,model_dir,tokenizer_path,training_data=None,test_data=None,ignore_label=None,unknown_label=None,data_preset='CONLL',feature_cols=None):
+    def __init__(self,transformer_path,model_dir,tokenizer_path,training_data=None,test_data=None,ignore_label=None,unknown_label=None,data_preset='CONLL',feature_cols=None,tokenizer_add_prefix_space=False):
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         if tokenizer_path is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(transformer_path)
+            self.tokenizer = AutoTokenizer.from_pretrained(transformer_path,add_prefix_space=tokenizer_add_prefix_space)
         else:
-            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path,add_prefix_space=tokenizer_add_prefix_space)
         self.prefix_subword_id = None
         if '▁' in self.tokenizer.vocab.keys():
             self.prefix_subword_id = self.tokenizer.convert_tokens_to_ids('▁')
@@ -97,6 +98,10 @@ class Classifier:
         for n_subword, valid_subword in enumerate(valid_subwords):
             if valid_subword:
                 label_match_id += 1
+                if label_match_id > (len(labels)-1):
+                    print(sentence)
+                    for subword_no, subword in enumerate(sentence['input_ids']):
+                        print(self.tokenizer.decode(subword)+" "+str(sentence['offset_mapping'][subword_no]))
                 label = labels[label_match_id]
                 if not (self.ignore_label is not None and self.ignore_label==label):
                     enc_labels[n_subword] = tag2id[label]
@@ -208,6 +213,7 @@ if __name__ == '__main__':
     arg_parser.add_argument('--epochs',help='number of epochs for training, defaults to 3',type=int,default=3)
     arg_parser.add_argument('--batch_size',help='batch size for training/testing, defaults to 16',type=int,default=16)
     arg_parser.add_argument('--learning_rate',help='learning rate for training, defaults to 5e-5',type=float,default=5e-5)
+    arg_parser.add_argument('--tokenizer_add_prefix_space',help='use option add_prefix_space for tokenizer (necessary for RobertaTokenizerFast)',default=False,action=argparse.BooleanOptionalAction)
     args = arg_parser.parse_args()
     feature_cols = args.feature_cols
     if feature_cols is not None:
@@ -219,7 +225,7 @@ if __name__ == '__main__':
         if args.training_data == None:
             print('Training data is missing')
         else:
-            classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols)
+            classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols,args.tokenizer_add_prefix_space)
             tokens, tags = classifier.reader.read_tags('MISC', classifier.training_data, in_feats=False,return_wids=False)
             tag_dict = {'MISC':tags}
             tokens_norm = tokens
@@ -234,7 +240,7 @@ if __name__ == '__main__':
         if args.test_data == None:
             print('Test data is missing')
         else:
-            classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols)
+            classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols,args.tokenizer_add_prefix_space)
             wids, tokens, tags = classifier.reader.read_tags('MISC', classifier.test_data, False)
             tags_dict = {'MISC':tags}
             tokens_norm = tokens

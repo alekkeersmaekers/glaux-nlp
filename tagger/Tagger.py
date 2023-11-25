@@ -6,6 +6,7 @@ from tokenization import Tokenization
 import unicodedata as ud
 import os
 from transformers import AutoConfig
+import argparse
 from argparse import ArgumentParser
 from lexicon.LexiconProcessor import LexiconProcessor
 from data import Datasets
@@ -73,11 +74,11 @@ class Tagger:
             print('Predicted '+feat)
         return all_preds
         
-    def train_separate_models(self,tokens,batch_size=16,epochs=3,normalization_rule=None):
+    def train_separate_models(self,tokens,batch_size=16,epochs=3,normalization_rule=None,tokenizer_add_prefix_space=False):
         tokens_norm = tokens
         if normalization_rule is not None:
             tokens_norm = Tokenization.normalize_tokens(tokens, normalization_rule)
-        feat_classifier = Classifier(transformer_path=self.transformer_path,model_dir=self.model_dir,tokenizer_path=self.tokenizer_path)
+        feat_classifier = Classifier(transformer_path=self.transformer_path,model_dir=self.model_dir,tokenizer_path=self.tokenizer_path,tokenizer_add_prefix_space=tokenizer_add_prefix_space)
         tag_dict = {}
         tag2id_all = {}
         id2tag_all = {}
@@ -432,6 +433,7 @@ if __name__ == '__main__':
     arg_parser.add_argument('--normalization_rule',help='normalize tokens during training/testing, normalization rules implemented are greek_glaux and standard NFD/NFKD/NFC/NFKC')
     arg_parser.add_argument('--epochs',help='number of epochs for training, defaults to 3',type=int,default=3)
     arg_parser.add_argument('--batch_size',help='batch size for training/testing, defaults to 16',type=int,default=16)
+    arg_parser.add_argument('--tokenizer_add_prefix_space',help='use option add_prefix_space for tokenizer (necessary for RobertaTokenizerFast)',default=False,action=argparse.BooleanOptionalAction)
     args = arg_parser.parse_args()
     feats = None
     if args.feats is not None:
@@ -442,7 +444,7 @@ if __name__ == '__main__':
         else:
             tagger = Tagger(training_data=args.training_data,tokenizer_path=args.tokenizer_path,transformer_path=args.transformer_path,feats=feats,model_dir=args.model_dir)
             tokens = tagger.reader.read_tags(feature=None, data=tagger.training_data, return_wids=False, return_tags=False)
-            tagger.train_separate_models(tokens,batch_size=args.batch_size,epochs=args.epochs,normalization_rule=args.normalization_rule)
+            tagger.train_separate_models(tokens,batch_size=args.batch_size,epochs=args.epochs,normalization_rule=args.normalization_rule,tokenizer_add_prefix_space=args.tokenizer_add_prefix_space)
     elif args.mode == 'test':
         if args.test_data == None:
             print('Test data is missing')
