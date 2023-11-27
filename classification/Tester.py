@@ -107,10 +107,22 @@ def extract_vectors(dataset,output_file,limit_wids=None,limit_labels=None,label_
 
 if __name__ == '__main__':
         
-    tagger = Tagger(training_data=r'C:\Users\u0111778\OneDrive - KU Leuven\Colleges\Computerlinguistiek voor klassieke talen\Morfologie\Latijn\train.txt',test_data=r'C:\Users\u0111778\OneDrive - KU Leuven\Colleges\Computerlinguistiek voor klassieke talen\Morfologie\Latijn\test.txt',transformer_path='bowphs/LaBerta',tokenizer_path='bowphs/LaBerta',feats=['XPOS','FEATS'],model_dir='C:/Users/u0111778/Documents/Corpora/Latijn/models')
-    tagger.reader.feature_cols['ID'] = 9
-    tokens = tagger.reader.read_tags(feature=None, data=tagger.training_data, return_wids=False, return_tags=False)
-    tagger.train_separate_models(tokens,tokenizer_add_prefix_space=True)
+    #tagger = Tagger(training_data=r'C:\Users\u0111778\OneDrive - KU Leuven\Colleges\Computerlinguistiek voor klassieke talen\Morfologie\Latijn\train.txt',test_data=r'C:\Users\u0111778\OneDrive - KU Leuven\Colleges\Computerlinguistiek voor klassieke talen\Morfologie\Latijn\test.txt',transformer_path='bowphs/LaBerta',tokenizer_path='bowphs/LaBerta',feats=['XPOS','FEATS'],model_dir='C:/Users/u0111778/Documents/Corpora/Latijn/models')
+    #tagger.reader.feature_cols['ID'] = 9
+    #tokens = tagger.reader.read_tags(feature=None, data=tagger.training_data, return_wids=False, return_tags=False)
+    #tagger.train_separate_models(tokens,tokenizer_add_prefix_space=True)
+    
+    classifier = Classifier('C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model',None,'C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model/tokenizer','C:/Users/u0111778/OneDrive - KU Leuven/Colleges/Computerlinguistiek voor klassieke talen/Materiaal 2022/Semantics/Data_Kosmos_Form.txt',None,None,None,'CONLL',{'ID':1,'FORM':2,'MISC':3},None)
+    tokens, tags = classifier.reader.read_tags('MISC', classifier.training_data, in_feats=False,return_wids=False)
+    tag_dict = {'MISC':tags}
+    tokens_norm = Tokenization.normalize_tokens(tokens, 'greek_glaux')
+    tag2id, id2tag = classifier.id_label_mappings(tags)
+    training_data = Datasets.build_dataset(tokens_norm,tag_dict)
+    training_data = training_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":classifier.tokenizer})
+    training_data = training_data.map(classifier.align_labels,fn_kwargs={"tag2id":tag2id,"last_subword":False})
+    for sentence in training_data:
+        for input_id_no, input_id in enumerate(sentence['input_ids']):
+            print(classifier.tokenizer.decode(input_id)+' '+str(sentence['labels'][input_id_no]))    
         
     #reader = CONLLReader(feature_cols={'ID':1,'FORM':2,'MISC':3})
     #tokenizer = AutoTokenizer.from_pretrained('C:/Users/u0111778/Documents/LanguageModels/greek_small_cased_model/tokenizer')

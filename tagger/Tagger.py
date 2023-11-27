@@ -94,7 +94,7 @@ class Tagger:
         training_data = Datasets.build_dataset(tokens_norm, tag_dict)
         training_data = training_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":feat_classifier.tokenizer})
         for feat in self.feature_dict:
-            training_data_feat = training_data.map(feat_classifier.align_labels,fn_kwargs={"prefix_subword_id":feat_classifier.prefix_subword_id,"tag2id":tag2id_all[feat],"labelname":feat})
+            training_data_feat = training_data.map(feat_classifier.align_labels,fn_kwargs={"tag2id":tag2id_all[feat],"labelname":feat})
             feat_classifier.train_classifier(f"{self.model_dir}/{feat}",training_data_feat,tag2id=tag2id_all[feat],id2tag=id2tag_all[feat],batch_size=batch_size,epochs=epochs)
         
     def build_feature_dict(self):

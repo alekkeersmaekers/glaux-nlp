@@ -16,9 +16,6 @@ class Classifier:
             self.tokenizer = AutoTokenizer.from_pretrained(transformer_path,add_prefix_space=tokenizer_add_prefix_space)
         else:
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path,add_prefix_space=tokenizer_add_prefix_space)
-        self.prefix_subword_id = None
-        if '▁' in self.tokenizer.vocab.keys():
-            self.prefix_subword_id = self.tokenizer.convert_tokens_to_ids('▁')
         self.transformer_path = transformer_path
         self.model_dir = model_dir
         self.reader = CONLLReader(data_preset,feature_cols)
@@ -42,54 +39,57 @@ class Classifier:
         id2tag = {s_id: tag for tag, s_id in tag2id.items()}
         return tag2id, id2tag
     
-    def get_valid_subwords(self, offset, input_ids, last_subword=True, prefix_subword_id=None):
+    def get_valid_subwords(self, subword_ids, last_subword=True):
+        # subword_ids is a list with None for the special tokens ([CLS], [SEP] etc.) and ids for each part of the respective word
+        # E.g.:
+        #[CLS] None
+        #ὁ 0
+        #γάρ 1
+        #κόσμο 2
+        #ς 2
+        #προϋ 3
+        #φέστηκε 3
+        #πάντων 4
+        #τελειότατο 5
+        #ς 5
+        #ὤν 6
+        #· 7
+        #[SEP] None
         valid_subwords = []
-        for i, current_offset in enumerate(offset):
-            x = current_offset[0]
-            y = current_offset[1]
-            if last_subword:
-                if i == len(offset) - 1:
-                    if (x, y) != (0, 0): # Catches the edge case in which there are 512 subwords.
-                        valid_subwords.append(True)
-                    else:
-                        valid_subwords.append(False)
-                else:
-                    # Each new word starts with x = 0. Subsequent subwords follow the pattern y = next_x
-                    # For example (0, 1) (1, 4) (4, 6)
-                    # If a sentence does not need the full 512 subwords (most cases): the remaining ones are filled with (0,0): see edge case supra
-                    next_offset = offset[i + 1]
-                    next_x = next_offset[0]
-                        
-                    # Necessary for SentencePiece: if a prefix has been tokenized in a separate token, it has offset mapping (0,1) while the next one still has (0,6). As a consequence, y != next_x while the token still does not need a label.
-                    if prefix_subword_id is not None and input_ids[i] == prefix_subword_id:
-                        valid_subwords.append(False)
-        
-                    elif y != next_x and next_x == 0:
-                        valid_subwords.append(True)
-                    else:
-                        valid_subwords.append(False)
-            else:
-                # First subword strategy is substantially easier: all subwords at the beginning have offset mapping 0, !0
-                if x == 0 and y != 0:
-                    # One exception: the prefix subword of SentencePiece also has 0, !0 (i.e. 0,1)
-                    if prefix_subword_id is not None and input_ids[i] == prefix_subword_id:
-                        valid_subwords.append(False)
-                    else:
-                        valid_subwords.append(True)
-                else:
+        for i, current_subword_id in enumerate(subword_ids):
+            if current_subword_id is None:
+                # Any special token is not a valid subword
+                valid_subwords.append(False)
+            elif last_subword:
+                # If we want to label the last subword, we have the following cases
+                # If the token is at the end of the list, and has a number, it is automatically a valid subword
+                # Note, this would not happen unless we don't have a [SEP] token, but added just in case
+                if i == len(subword_ids) - 1:
+                    valid_subwords.append(True)
+                # If the next token has the same id as the current token, it is not the last subtoken and not a valid subword
+                elif subword_ids[i+1] == current_subword_id:
                     valid_subwords.append(False)
+                # Otherwise, it is the last subtoken of the word
+                else:
+                    valid_subwords.append(True)
+            else:
+                # If we want to label the first subword, we have the following cases
+                # If the token is at the start of the list, and has a number, it is automatically a valid subword
+                # Note, this would not happen unless we don't have a [CLS] token, but added just in case
+                if i==0:
+                    valid_subwords.append(True)
+                # If the previous token has the same id as the current token, it is not the first subtoken and not a valid subword
+                elif subword_ids[i-1] == current_subword_id:
+                    valid_subwords.append(False)
+                # Otherwise, it is the first subtoken of the word
+                else:
+                    valid_subwords.append(True)
         return valid_subwords
     
-    def align_labels(self, sentence, tag2id, last_subword=True, prefix_subword_id=None, labelname='MISC', is_tensor=False):
+    def align_labels(self, sentence, tag2id, last_subword=True, labelname='MISC'):
         labels = sentence[labelname]
-        offset = sentence['offset_mapping']
-        input_ids = sentence['input_ids']
         
-        if is_tensor:
-            offset = offset[0]
-            input_ids = input_ids[0]
-        
-        valid_subwords = self.get_valid_subwords(offset,input_ids,last_subword=last_subword,prefix_subword_id=prefix_subword_id)
+        valid_subwords = self.get_valid_subwords(sentence['subword_ids'],last_subword=last_subword)
         
         enc_labels = np.ones(len(valid_subwords),dtype=int) * - 100
         
@@ -129,7 +129,7 @@ class Classifier:
         if self.unknown_label is not None:
             tag2id[self.unknown_label] = 0
         
-        test_data = test_data.map(self.align_labels,fn_kwargs={"prefix_subword_id":self.prefix_subword_id,"tag2id":tag2id,"labelname":labelname})
+        test_data = test_data.map(self.align_labels,fn_kwargs={"tag2id":tag2id,"labelname":labelname})
         
         data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer)
         training_args = TrainingArguments(output_dir=self.model_dir,per_device_eval_batch_size=batch_size)
@@ -141,7 +141,7 @@ class Classifier:
         # This only works when padding is set to the right, since the padded predictions will be longer than valid_subword
         all_preds = []
         for sent_no, sent in enumerate(test_data):
-            valid_subwords = self.get_valid_subwords(sent['offset_mapping'],sent['input_ids'],prefix_subword_id=self.prefix_subword_id)
+            valid_subwords = self.get_valid_subwords(sent['subword_ids'])
             for subword_no, valid_subword in enumerate(valid_subwords):
                 if valid_subword:
                     # If a (sub)word has the label defined by ignore_label, it is also set to -100 with classifier.align_labels, even though it is counted as a valid subword
@@ -234,7 +234,7 @@ if __name__ == '__main__':
             tag2id, id2tag = classifier.id_label_mappings(tags)
             training_data = Datasets.build_dataset(tokens_norm,tag_dict)
             training_data = training_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":classifier.tokenizer})
-            training_data = training_data.map(classifier.align_labels,fn_kwargs={"prefix_subword_id":classifier.prefix_subword_id,"tag2id":tag2id})
+            training_data = training_data.map(classifier.align_labels,fn_kwargs={"tag2id":tag2id})
             classifier.train_classifier(classifier.model_dir,training_data,tag2id=tag2id,id2tag=id2tag,epochs=args.epochs,batch_size=args.batch_size,learning_rate=args.learning_rate)
     elif args.mode == 'test':
         if args.test_data == None:

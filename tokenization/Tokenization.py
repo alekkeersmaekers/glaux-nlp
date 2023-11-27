@@ -3,6 +3,8 @@ import unicodedata
 
 def tokenize_sentence(sentence, tokenizer, return_tensors=None):
     encodings = tokenizer(sentence['tokens'], truncation=True, max_length=512, is_split_into_words=True, return_offsets_mapping=True,return_tensors=return_tensors)
+    # You will get an error if a TokenizerFast cannot be used!!!
+    encodings['subword_ids'] = encodings.word_ids()
     return encodings
 
 def normalize_greek_nfd(word):
