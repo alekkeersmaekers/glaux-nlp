@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForTokenClassification, AutoConfig, TrainingArguments, Trainer, DataCollatorForTokenClassification
 from data.CONLLReader import CONLLReader
@@ -251,4 +253,13 @@ if __name__ == '__main__':
             prediction = classifier.predict(test_data,model_dir=classifier.model_dir,batch_size=args.batch_size)
             if args.output_file is not None:
                 classifier.write_prediction(wids,tokens,tags,prediction,args.output_file,args.output_format)
-                
+
+
+@dataclass
+class Task:
+    id: int
+    name: str
+    type: str
+    num_labels: int
+    label_list: [str]
+

@@ -1,7 +1,8 @@
 # -*- coding: UTF-8 -*-
+import datasets
 
 from data.CONLLReader import CONLLReader
-from classification.Classifier import Classifier
+from classification.Classifier import Classifier, Task
 from tokenization import Tokenization
 import unicodedata as ud
 import os
@@ -10,7 +11,7 @@ import argparse
 from argparse import ArgumentParser
 from lexicon.LexiconProcessor import LexiconProcessor
 from data import Datasets
-
+from tqdm import tqdm
 
 class Tagger:
 
@@ -85,8 +86,8 @@ class Tagger:
             print('Predicted ' + feat)
         return all_preds
 
-    def train_separate_models(self, tokens, batch_size=16, epochs=3, normalization_rule=None,
-                              tokenizer_add_prefix_space=False):
+    def train_models(self, tokens, is_joint, batch_size=16, epochs=3, normalization_rule=None,
+                     tokenizer_add_prefix_space=False):
         tokens_norm = tokens
         if normalization_rule is not None:
             tokens_norm = Tokenization.normalize_tokens(tokens, normalization_rule)
@@ -96,7 +97,7 @@ class Tagger:
         tag_dict = {}
         tag2id_all = {}
         id2tag_all = {}
-        for feat in self.feature_dict:
+        for feat in tqdm(self.feature_dict, desc="Reading feat data"):
             if feat == 'UPOS' or feat == 'XPOS':
                 tags = self.reader.read_tags(feat, self.training_data, return_wids=False, return_tokens=False)
             else:
@@ -109,12 +110,39 @@ class Tagger:
         training_data = Datasets.build_dataset(tokens_norm, tag_dict)
         training_data = training_data.map(Tokenization.tokenize_sentence,
                                           fn_kwargs={"tokenizer": feat_classifier.tokenizer})
-        for feat in self.feature_dict:
-            training_data_feat = training_data.map(feat_classifier.align_labels,
-                                                   fn_kwargs={"tag2id": tag2id_all[feat], "labelname": feat})
-            feat_classifier.train_classifier(f"{self.model_dir}/{feat}", training_data_feat,
-                                             tag2id=tag2id_all[feat], id2tag=id2tag_all[feat], batch_size=batch_size,
-                                             epochs=epochs)
+
+        if not is_joint:
+            for feat in self.feature_dict:
+                training_data_feat = training_data.map(feat_classifier.align_labels,
+                                                       fn_kwargs={"tag2id": tag2id_all[feat], "labelname": feat})
+                feat_classifier.train_classifier(f"{self.model_dir}/{feat}", training_data_feat,
+                                                 tag2id=tag2id_all[feat], id2tag=id2tag_all[feat], batch_size=batch_size,
+                                                 epochs=epochs)
+        else:
+            training_data_df = training_data.to_pandas() # once huggingface implements selecting columns, use datasets directly
+            joint_feat_datasets = []
+            for feat_idx, feat in enumerate(self.feature_dict):
+                task_info = Task(
+                    id=feat_idx,
+                    name=feat,
+                    num_labels=len(tag2id_all[feat]),
+                    label_list=list(tag2id_all[feat].keys()),
+                    type="token_classification" if feat != "dephead" else "question_answering"
+                )
+                feat_df = training_data_df[["tokens", task_info.name, 'input_ids', 'token_type_ids', 'attention_mask',
+                                            'offset_mapping', 'subword_ids']]
+                feat_df = feat_df.assign(task_ids=task_info.id)
+
+                training_data_feat = Datasets.Dataset.from_pandas(feat_df).map(feat_classifier.align_labels,
+                                                       fn_kwargs={"tag2id": tag2id_all[feat], "labelname": feat})
+                training_data_feat = training_data_feat.remove_columns([task_info.name])
+                joint_feat_datasets.append(training_data_feat)
+
+            joint_feat_data = datasets.concatenate_datasets(joint_feat_datasets)
+            1==1
+
+
+
 
     def build_feature_dict(self):
         # Builds a dictionary with all tagging features and their possible values, based on the training data or the
@@ -181,7 +209,7 @@ class Tagger:
                 tag = tuple(tag)
                 possible_tags.append(tag)
         elif self.training_data is not None and not self.all_tag_combinations:
-            for sent in self.training_data:
+            for sent in tqdm(self.training_data, desc="Building possible tags"):
                 for line in sent.split('\n'):
                     split = line.rstrip().split('\t')
                     tag = []
@@ -453,6 +481,9 @@ if __name__ == '__main__':
     arg_parser.add_argument('mode', help='train/test')
     arg_parser.add_argument('transformer_path', help='path to the transformer model')
     arg_parser.add_argument('model_dir', help='path of tagging models')
+    arg_parser.add_argument('--is_joint', help='use option to signal joint tagging, '
+                                               'otherwise separate models',
+                            default=False, action=argparse.BooleanOptionalAction)
     arg_parser.add_argument('--feats',
                             help='features to be extracted from the CONLL, default UPOS,XPOS,FEATS (any specific '
                                  'values in the FEATS column are also possible)',
@@ -482,6 +513,9 @@ if __name__ == '__main__':
     arg_parser.add_argument('--tokenizer_add_prefix_space',
                             help='use option add_prefix_space for tokenizer (necessary for RobertaTokenizerFast)',
                             default=False, action=argparse.BooleanOptionalAction)
+    arg_parser.add_argument('--data_preset', help="format of the input data: default is CONLL",
+                            type=str, default='CONLL')
+
     args = arg_parser.parse_args()
     feats = None
     if args.feats is not None:
@@ -491,12 +525,13 @@ if __name__ == '__main__':
             print('Training data is missing')
         else:
             tagger = Tagger(training_data=args.training_data, tokenizer_path=args.tokenizer_path,
-                            transformer_path=args.transformer_path, feats=feats, model_dir=args.model_dir)
+                            transformer_path=args.transformer_path, feats=feats, model_dir=args.model_dir,
+                            data_preset=args.data_preset)
             tokens = tagger.reader.read_tags(feature=None, data=tagger.training_data, return_wids=False,
                                              return_tags=False)
-            tagger.train_separate_models(tokens, batch_size=args.batch_size, epochs=args.epochs,
-                                         normalization_rule=args.normalization_rule,
-                                         tokenizer_add_prefix_space=args.tokenizer_add_prefix_space)
+            tagger.train_models(tokens, is_joint=args.is_joint, batch_size=args.batch_size, epochs=args.epochs,
+                                normalization_rule=args.normalization_rule,
+                                tokenizer_add_prefix_space=args.tokenizer_add_prefix_space)
     elif args.mode == 'test':
         if args.test_data is None:
             print('Test data is missing')
@@ -504,7 +539,7 @@ if __name__ == '__main__':
             tagger = Tagger(training_data=args.training_data, test_data=args.test_data,
                             tokenizer_path=args.tokenizer_path, transformer_path=args.transformer_path, feats=feats,
                             model_dir=args.model_dir, unknown_label=args.unknown_label, lexicon_file=args.lexicon,
-                            possible_tags_file=args.possible_tags_file)
+                            possible_tags_file=args.possible_tags_file, data_preset=args.data_preset)
             wids, tokens = tagger.reader.read_tags(data=tagger.test_data, feature=None, return_tags=False)
             tokens_norm = tokens
             if args.normalization_rule is not None:

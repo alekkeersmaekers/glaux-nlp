@@ -1,11 +1,13 @@
 import re
+import pyconll
 
 class CONLLReader:
     
-    def __init__(self,preset='CONLL',feature_cols=None):
+    def __init__(self, preset='CONLL', feature_cols=None):
+        self.preset = preset
         if feature_cols is None:
             feature_cols = dict()
-            if preset == 'CONLL':
+            if preset == "CONLL":
                 feature_cols['ID'] = 0
                 feature_cols['FORM'] = 1
                 feature_cols['LEMMA'] = 2
@@ -24,11 +26,18 @@ class CONLLReader:
         else:
             self.feature_cols = feature_cols
     
-    def parse_conll(self,filename):
-        file = open(filename,encoding='utf-8')
-        raw_text = file.read().strip()
-        raw_sents = re.split(r'\n\n', raw_text)
-        return raw_sents
+    def parse_conll(self, filename):
+        if self.preset == "CONLL":
+            conll = pyconll.load_from_file(filename) # implies UTF-8
+            raw_sents = ["\n".join([token.conll() for token in sentence]) for sentence in conll]
+
+            return raw_sents
+        else:
+            file = open(filename,encoding='utf-8')
+            raw_text = file.read().strip()
+            raw_sents = re.split(r'\n\n', raw_text)
+
+            return raw_sents
     
     def read_tags(self, feature, data, in_feats=False, return_wids=True, return_tokens=True, return_tags=True):
         # Reads the values for a given feature (UPOS, XPOS or morphological) from the training set, as well as the wids and forms
