@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForTokenClassification, AutoConfig, TrainingArguments, Trainer, \
-    DataCollatorForTokenClassification, EvalPrediction
+    DataCollatorForTokenClassification, EvalPrediction, default_data_collator
 
 from classification.MultiTaskModel import MultiTaskModel
 from data.CONLLReader import CONLLReader
@@ -317,6 +317,7 @@ class JointClassifier(Classifier):
         self.multi_task_model = MultiTaskModel(self.transformer_path, self.tasks)
         training_args = TrainingArguments(output_dir=output_model, num_train_epochs=epochs,
                                           per_device_train_batch_size=batch_size, learning_rate=learning_rate,
+                                          save_safetensors=False,
                                           save_steps=10000)
 
         data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer,
@@ -332,3 +333,48 @@ class JointClassifier(Classifier):
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
         trainer.save_state()
+
+    def predict(self, test_data, model_dir=None, batch_size=16, labelname='MISC'):
+        ##Only works when padding is set to the right!!! See below
+        self.classifier_model = MultiTaskModel(self.transformer_path, self.tasks)
+        self.classifier_model.load_state_dict(torch.load(f"{self.model_dir}/pytorch_model.bin"), strict=False)
+        current_task = [x for x in self.tasks if x.name == labelname][0]
+        id2tag = {k: v for k, v in enumerate(current_task.label_list)}
+        tag2id = {v: k for k, v in enumerate(current_task.label_list)}
+
+        test_data = test_data.map(self.align_labels, fn_kwargs={"tag2id": tag2id, "labelname": labelname})
+        test_data = test_data.add_column("task_ids", [current_task.id] * len(test_data))
+
+        if current_task.type == "token_classification":
+            data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer)
+        else:
+            data_collator = default_data_collator
+
+
+        training_args = TrainingArguments(output_dir=self.model_dir, per_device_eval_batch_size=batch_size)
+        trainer = Trainer(model=self.classifier_model, args=training_args, tokenizer=self.tokenizer,
+                          data_collator=data_collator)
+
+        predictions = trainer.predict(test_data)
+        metrics = predictions.metrics
+        softmaxed_predictions = torch.nn.functional.softmax(torch.from_numpy(predictions.predictions[0]), dim=-1).tolist()
+        # we need to access only the logits of the predictions for evaluation hence [0]
+
+        # This only works when padding is set to the right, since the padded predictions will be longer than valid_subword
+        all_preds = []
+        for sent_no, sent in enumerate(test_data):
+            valid_subwords = self.get_valid_subwords(sent['subword_ids'])
+            for subword_no, valid_subword in enumerate(valid_subwords):
+                if valid_subword:
+                    # If a (sub)word has the label defined by ignore_label, it is also set to -100 with classifier.align_labels, even though it is counted as a valid subword
+                    if not ('labels' in sent and sent['labels'][subword_no] == -100):
+                        preds = {}
+                        for prob_n, prob in enumerate(softmaxed_predictions[sent_no][subword_no]):
+                            classname = id2tag[prob_n]
+                            preds[classname] = prob
+                        all_preds.append(preds)
+
+        trainer.log_metrics("eval", metrics)
+        trainer.save_metrics("eval", metrics)
+
+        return all_preds

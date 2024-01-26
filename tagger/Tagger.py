@@ -13,14 +13,13 @@ from lexicon.LexiconProcessor import LexiconProcessor
 from data import Datasets
 from tqdm import tqdm
 
-class Tagger:
 
-    # TODO detailed feats terug verwijderen!
+class Tagger:
 
     def __init__(self, transformer_path, tokenizer_path, model_dir, training_data=None, test_data=None,
                  lexicon_file=None, possible_tags_file=None, data_preset='CONLL', feats=['UPOS', 'XPOS', 'FEATS'],
                  unknown_label=None, all_tag_combinations=False, add_training_data_to_lexicon=True,
-                 normalization_rule=None):
+                 normalization_rule=None, is_joint=False):
         self.reader = CONLLReader(preset=data_preset)
         self.transformer_path = transformer_path
         self.tokenizer_path = tokenizer_path
@@ -49,12 +48,21 @@ class Tagger:
             self.lexicon = None
         self.possible_tags = self.build_possible_tags(possible_tags_file)
         self.normalization_rule = normalization_rule
+        self.is_joint = is_joint
 
     def tag_individual_feat(self, feat, test_data, batch_size=16):
-        feature_classifier = Classifier(self.transformer_path, tokenizer_path=self.tokenizer_path,
-                                        unknown_label=self.unknown_label, model_dir=self.model_dir)
-        preds = feature_classifier.predict(test_data, model_dir=f"{self.model_dir}/{feat}", batch_size=batch_size,
-                                           labelname=feat)
+        if not self.is_joint:
+            feature_classifier = Classifier(self.transformer_path, tokenizer_path=self.tokenizer_path,
+                                            unknown_label=self.unknown_label, model_dir=self.model_dir)
+            preds = feature_classifier.predict(test_data, model_dir=f"{self.model_dir}/{feat}", batch_size=batch_size,
+                                               labelname=feat)
+        else:
+            feature_classifier = JointClassifier(self.transformer_path, tokenizer_path=self.tokenizer_path,
+                                                 unknown_label=self.unknown_label, model_dir=self.model_dir)
+            feature_classifier.tasks = self.tasks
+            preds = feature_classifier.predict(test_data, model_dir=self.model_dir, batch_size=batch_size,
+                                               labelname=feat)
+
         return (feat, preds)
 
     def tag_seperately(self, tokens, batch_size=16, tokenizer_add_prefix_space=False):
@@ -78,30 +86,51 @@ class Tagger:
         # This is not very elegant, but tokenized_string is 'locked behind' classifier. Maybe it's better to move to
         # another class e.g. Tokenization? I'm not sure if this is the best way to do so though since this contains
         # methods not specific for transformers.
-        classifier = Classifier(self.transformer_path, None, self.tokenizer_path,
-                                tokenizer_add_prefix_space=tokenizer_add_prefix_space)
+        if not self.is_joint:
+            classifier = Classifier(self.transformer_path, None, self.tokenizer_path,
+                                    tokenizer_add_prefix_space=tokenizer_add_prefix_space)
+        else:
+            classifier = JointClassifier(self.transformer_path, None, self.tokenizer_path,
+                                         tokenizer_add_prefix_space=tokenizer_add_prefix_space)
         test_data = test_data.map(Tokenization.tokenize_sentence, fn_kwargs={"tokenizer": classifier.tokenizer})
         all_preds = {}
-        for feat in self.feature_dict:
+        self.tasks = []
+        for feat_idx, feat in enumerate(self.feature_dict):
+            if self.is_joint:
+                if feat == 'UPOS' or feat == 'XPOS':
+                    tags = self.reader.read_tags(feat, self.training_data, return_wids=False, return_tokens=False)
+                else:
+                    tags = self.reader.read_tags(feat, self.training_data, in_feats=True, return_wids=False,
+                                                 return_tokens=False)
+                tag2id, id2tag = classifier.id_label_mappings(tags)
+                task_info = Task(
+                    id=feat_idx,
+                    name=feat,
+                    num_labels=len(tag2id),
+                    label_list=list(tag2id.keys()),
+                    type="token_classification" if feat != "dephead" else "question_answering"
+                )
+                tagger.tasks.append(task_info)
+
             result = self.tag_individual_feat(feat, test_data, batch_size=batch_size)
             all_preds[result[0]] = result[1]
             print('Predicted ' + feat)
         return all_preds
 
-    def train_models(self, tokens, is_joint, batch_size=16, epochs=3, normalization_rule=None,
+    def train_models(self, tokens, batch_size=16, epochs=3, normalization_rule=None,
                      tokenizer_add_prefix_space=False):
         tokens_norm = tokens
         if normalization_rule is not None:
             tokens_norm = Tokenization.normalize_tokens(tokens, normalization_rule)
 
-        if not is_joint:
+        if not self.is_joint:
             feat_classifier = Classifier(transformer_path=self.transformer_path, model_dir=self.model_dir,
                                          tokenizer_path=self.tokenizer_path,
                                          tokenizer_add_prefix_space=tokenizer_add_prefix_space)
         else:
             feat_classifier = JointClassifier(transformer_path=self.transformer_path, model_dir=self.model_dir,
-                                         tokenizer_path=self.tokenizer_path,
-                                         tokenizer_add_prefix_space=tokenizer_add_prefix_space)
+                                              tokenizer_path=self.tokenizer_path,
+                                              tokenizer_add_prefix_space=tokenizer_add_prefix_space)
 
         tag_dict = {}
         tag2id_all = {}
@@ -120,17 +149,18 @@ class Tagger:
         training_data = training_data.map(Tokenization.tokenize_sentence,
                                           fn_kwargs={"tokenizer": feat_classifier.tokenizer})
 
-        if not is_joint:
+        if not self.is_joint:
             for feat in self.feature_dict:
                 training_data_feat = training_data.map(feat_classifier.align_labels,
                                                        fn_kwargs={"tag2id": tag2id_all[feat], "labelname": feat})
                 feat_classifier.train_classifier(f"{self.model_dir}/{feat}", training_data_feat,
-                                                 tag2id=tag2id_all[feat], id2tag=id2tag_all[feat], batch_size=batch_size,
+                                                 tag2id=tag2id_all[feat], id2tag=id2tag_all[feat],
+                                                 batch_size=batch_size,
                                                  epochs=epochs)
         else:
-            training_data_df = training_data.to_pandas() # once huggingface implements selecting columns, use datasets directly
+            training_data_df = training_data.to_pandas()  # once huggingface implements selecting columns, use datasets directly
             joint_feat_datasets = []
-            feat_classifier.tasks = []
+            self.tasks = []
 
             for feat_idx, feat in tqdm(enumerate(self.feature_dict)):
                 task_info = Task(
@@ -140,22 +170,24 @@ class Tagger:
                     label_list=list(tag2id_all[feat].keys()),
                     type="token_classification" if feat != "dephead" else "question_answering"
                 )
-                feat_classifier.tasks.append(task_info)
+                self.tasks.append(task_info)
+
                 feat_df = training_data_df[["tokens", task_info.name, 'input_ids', 'token_type_ids', 'attention_mask',
                                             'offset_mapping', 'subword_ids']]
                 feat_df = feat_df.assign(task_ids=task_info.id)
 
                 training_data_feat = Datasets.Dataset.from_pandas(feat_df).map(feat_classifier.align_labels,
-                                                       fn_kwargs={"tag2id": tag2id_all[feat], "labelname": feat})
+                                                                               fn_kwargs={
+                                                                                   "tag2id": tag2id_all[task_info.name],
+                                                                                   "labelname": task_info.name})
                 training_data_feat = training_data_feat.remove_columns([task_info.name])
                 joint_feat_datasets.append(training_data_feat)
 
             joint_feat_data = datasets.concatenate_datasets(joint_feat_datasets)
+            feat_classifier.tasks = self.tasks
             feat_classifier.train_classifier(f"{self.model_dir}", joint_feat_data,
                                              tag2id=tag2id_all, id2tag=id2tag_all, batch_size=batch_size,
                                              epochs=epochs)
-
-
 
     def build_feature_dict(self):
         # Builds a dictionary with all tagging features and their possible values, based on the training data or the
@@ -276,7 +308,7 @@ class Tagger:
         all_tags = []
         num_poss = []
         word_no = -1
-        for sent in tokens:
+        for sent in tqdm(tokens, desc="Combining predicted tags"):
             for word in sent:
                 word_no += 1
                 possible_tags = self.possible_tags
@@ -540,10 +572,10 @@ if __name__ == '__main__':
         else:
             tagger = Tagger(training_data=args.training_data, tokenizer_path=args.tokenizer_path,
                             transformer_path=args.transformer_path, feats=feats, model_dir=args.model_dir,
-                            data_preset=args.data_preset)
+                            data_preset=args.data_preset, is_joint=args.is_joint)
             tokens = tagger.reader.read_tags(feature=None, data=tagger.training_data, return_wids=False,
                                              return_tags=False)
-            tagger.train_models(tokens, is_joint=args.is_joint, batch_size=args.batch_size, epochs=args.epochs,
+            tagger.train_models(tokens, batch_size=args.batch_size, epochs=args.epochs,
                                 normalization_rule=args.normalization_rule,
                                 tokenizer_add_prefix_space=args.tokenizer_add_prefix_space)
     elif args.mode == 'test':
@@ -553,9 +585,11 @@ if __name__ == '__main__':
             tagger = Tagger(training_data=args.training_data, test_data=args.test_data,
                             tokenizer_path=args.tokenizer_path, transformer_path=args.transformer_path, feats=feats,
                             model_dir=args.model_dir, unknown_label=args.unknown_label, lexicon_file=args.lexicon,
-                            possible_tags_file=args.possible_tags_file, data_preset=args.data_preset)
+                            possible_tags_file=args.possible_tags_file, data_preset=args.data_preset,
+                            is_joint=args.is_joint)
             wids, tokens = tagger.reader.read_tags(data=tagger.test_data, feature=None, return_tags=False)
             tokens_norm = tokens
+
             if args.normalization_rule is not None:
                 tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
             all_preds = tagger.tag_seperately(tokens_norm, batch_size=args.batch_size)
