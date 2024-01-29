@@ -3,11 +3,11 @@ import pyconll
 
 class CONLLReader:
     
-    def __init__(self, preset='CONLL', feature_cols=None):
+    def __init__(self, preset='CONLLU', feature_cols=None):
         self.preset = preset
         if feature_cols is None:
             feature_cols = dict()
-            if preset == "CONLL":
+            if preset == "CONLLU":
                 feature_cols['ID'] = 0
                 feature_cols['FORM'] = 1
                 feature_cols['LEMMA'] = 2
@@ -27,19 +27,29 @@ class CONLLReader:
             self.feature_cols = feature_cols
     
     def parse_conll(self, filename):
-        if self.preset == "CONLL":
-            conll = pyconll.load_from_file(filename) # implies UTF-8
-            raw_sents = ["\n".join([token.conll() for token in sentence]) for sentence in conll]
-
-            return raw_sents
+        if self.preset == "CONLLU":
+            conll = pyconll.load_from_file(filename)
+            sentences = []
+            for sent in conll:
+                sentence = []
+                for token in sent:
+                    token_list = [token.id,token.form,token.lemma,token.upos,token.xpos,token.feats,token.head,token.deprel,token.deps,token.misc]
+                    sentence.append(token_list)
+                sentences.append(sentence)
+            return sentences
         else:
             file = open(filename,encoding='utf-8')
             raw_text = file.read().strip()
             raw_sents = re.split(r'\n\n', raw_text)
-
-            return raw_sents
+            sentences = []
+            for sent in raw_sents:
+                sentence = []
+                tokens = re.split(r'\n',sent)
+                for token in tokens:
+                    sentence.append(re.split(r'\t',token))
+            return sentences
     
-    def read_tags(self, feature, data, in_feats=False, return_wids=True, return_tokens=True, return_tags=True):
+    def read_tokens(self, feature, data, in_feats=False, return_wids=True, return_tokens=True, return_tags=True):
         # Reads the values for a given feature (UPOS, XPOS or morphological) from the training set, as well as the wids and forms
         wid_sents = []
         token_sents = []
@@ -49,22 +59,21 @@ class CONLLReader:
             wids = []
             tokens = []
             tags = []
-            for line in sent.split("\n"):
-                split = line.split("\t")
+            for word in sent:
                 if return_wids:
-                    wids.append(split[self.feature_cols['ID']])
+                    wids.append(word[self.feature_cols['ID']])
                 if return_tokens:
-                    tokens.append(split[self.feature_cols['FORM']])
+                    tokens.append(word[self.feature_cols['FORM']])
                 if return_tags:
                     if not in_feats:
-                        tags.append(split[self.feature_cols[feature]])
+                        tags.append(word[self.feature_cols[feature]])
                     else:
-                        if split[self.feature_cols['FEATS']] == '_':
+                        if word[self.feature_cols['FEATS']] == '_':
                             #feature_values = self.feature_dict[feature]
                             #feature_values.add('_')
                             tags.append('_')
                         else:
-                            morph = split[self.feature_cols['FEATS']].split('|')
+                            morph = word[self.feature_cols['FEATS']].split('|')
                             in_conll = False
                             for feature_value in morph:
                                 feat_split = feature_value.split('=')

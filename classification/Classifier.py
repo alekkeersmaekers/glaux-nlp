@@ -15,7 +15,7 @@ from data import Datasets
 
 class Classifier:
     
-    def __init__(self,transformer_path,model_dir,tokenizer_path,training_data=None,test_data=None,ignore_label=None,unknown_label=None,data_preset='CONLL',feature_cols=None,tokenizer_add_prefix_space=False):
+    def __init__(self,transformer_path,model_dir,tokenizer_path,training_data=None,test_data=None,ignore_label=None,unknown_label=None,data_preset='CONLLU',feature_cols=None,tokenizer_add_prefix_space=False):
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         if tokenizer_path is None:
             self.tokenizer = AutoTokenizer.from_pretrained(transformer_path,add_prefix_space=tokenizer_add_prefix_space)
@@ -173,14 +173,14 @@ class Classifier:
                     wid = wids[sent_id][word_id]
                     tag = tags[sent_id][word_id]
                     if self.ignore_label is not None and tag == self.ignore_label:
-                        if output_format == 'CONLL':
+                        if output_format == 'CONLLU':
                             outfile.write(wid + "\t" + word + "\t_\t_\t_\t_\t_\t_\t_\t_\n")
                         elif output_format == 'simple':
                             outfile.write(wid + "\t" + word + "\t_\n")
                     else:
                         word_no += 1
                         top_prediction = sorted(preds[word_no].items(), reverse=True, key=lambda x: x[1])[0]
-                        if output_format == 'CONLL':
+                        if output_format == 'CONLLU':
                             outfile.write(wid + "\t" + word + "\t_\t_\t_\t_\t_\t_\t_\t"+top_prediction[0]+"\n")
                         elif output_format == 'simple':
                             outfile.write(wid + "\t" + word + "\t"+top_prediction[0]+"\n")
@@ -197,7 +197,7 @@ class Classifier:
                                     sent_str+= ' '
                                 outfile.write('\t'+sent_str.strip())
                             outfile.write('\n')
-                if output_format == 'CONLL' or output_format == 'simple':
+                if output_format == 'CONLLU' or output_format == 'simple':
                     outfile.write('\n')
                         
 if __name__ == '__main__':
@@ -209,10 +209,10 @@ if __name__ == '__main__':
     arg_parser.add_argument('--training_data',help='classifier training data')
     arg_parser.add_argument('--test_data',help='classifier test data')
     arg_parser.add_argument('--output_file',help='classified data')
-    arg_parser.add_argument('--output_format',help='format of the output data: CONLL (standard CONLL, with prediction in MISC), simple (CONLL-style with only columns ID, FORM and MISC=prediction) or tab (tabular format, with prediction probabilities, no sentence boundaries and without irrelevant tokens)',default='CONLL')
+    arg_parser.add_argument('--output_format',help='format of the output data: CONLLU (standard CONLLU, with prediction in MISC), simple (CONLL-style with only columns ID, FORM and MISC=prediction) or tab (tabular format, with prediction probabilities, no sentence boundaries and without irrelevant tokens)',default='CONLLU')
     arg_parser.add_argument('--ignore_label',help='all tokens with this tag will be ignored during training or classification')
     arg_parser.add_argument('--unknown_label',help='tag in the test data for tokens for which we do not know the label beforehand')
-    arg_parser.add_argument('--data_preset',help='format of the data, defaults to CONLL (other option: simple, where the data has columns ID, FORM, MISC)',default='CONLL')
+    arg_parser.add_argument('--data_preset',help='format of the data, defaults to CONLLU (other option: simple, where the data has columns ID, FORM, MISC)',default='CONLLU')
     arg_parser.add_argument('--feature_cols',help='define a custom format for the data, e.g. {"ID":0,"FORM":2,"MISC":3}')
     arg_parser.add_argument('--normalization_rule',help='normalize tokens during training/testing, normalization rules implemented are greek_glaux and standard NFD/NFKD/NFC/NFKC')
     arg_parser.add_argument('--epochs',help='number of epochs for training, defaults to 3',type=int,default=3)
@@ -231,7 +231,7 @@ if __name__ == '__main__':
             print('Training data is missing')
         else:
             classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols,args.tokenizer_add_prefix_space)
-            tokens, tags = classifier.reader.read_tags('MISC', classifier.training_data, in_feats=False,return_wids=False)
+            tokens, tags = classifier.reader.read_tokens('MISC', classifier.training_data, in_feats=False,return_wids=False)
             tag_dict = {'MISC':tags}
             tokens_norm = tokens
             if args.normalization_rule is not None:
@@ -246,7 +246,7 @@ if __name__ == '__main__':
             print('Test data is missing')
         else:
             classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols,args.tokenizer_add_prefix_space)
-            wids, tokens, tags = classifier.reader.read_tags('MISC', classifier.test_data, False)
+            wids, tokens, tags = classifier.reader.read_tokens('MISC', classifier.test_data, False)
             tags_dict = {'MISC':tags}
             tokens_norm = tokens
             if args.normalization_rule is not None:
@@ -293,7 +293,7 @@ class Task:
 class JointClassifier(Classifier):
 
     def __init__(self, transformer_path, model_dir, tokenizer_path, training_data=None, test_data=None,
-                 ignore_label=None, unknown_label=None, data_preset='CONLL', feature_cols=None,
+                 ignore_label=None, unknown_label=None, data_preset='CONLLU', feature_cols=None,
                  tokenizer_add_prefix_space=False):
         super().__init__(transformer_path, model_dir, tokenizer_path, training_data, test_data, ignore_label,
                          unknown_label, data_preset, feature_cols, tokenizer_add_prefix_space)

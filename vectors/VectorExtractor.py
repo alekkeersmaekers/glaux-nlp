@@ -93,7 +93,7 @@ class VectorExtractor:
                             outfile.write("\t"+"{:0.5f}".format(element))
                         outfile.write('\n')
 
-    def __init__(self,transformer_path,tokenizer_path,data_path=None,data_preset='CONLL',feature_cols=None):
+    def __init__(self,transformer_path,tokenizer_path,data_path=None,data_preset='CONLLU',feature_cols=None):
         if tokenizer_path is None:
             self.tokenizer = AutoTokenizer.from_pretrained(transformer_path)
         else:
@@ -110,7 +110,7 @@ if __name__ == '__main__':
     arg_parser.add_argument('data',help='path to the data')
     arg_parser.add_argument('output',help='output file')
     arg_parser.add_argument('--tokenizer_path',help='path to the tokenizer (defaults to the path of the transformer model)')
-    arg_parser.add_argument('--data_preset',help='format of the data, defaults to CONLL (other option: simple, where the data has columns ID, FORM, MISC)',default='CONLL')
+    arg_parser.add_argument('--data_preset',help='format of the data, defaults to CONLLU (other option: simple, where the data has columns ID, FORM, MISC)',default='CONLLU')
     arg_parser.add_argument('--feature_cols',help='define a custom format for the data, e.g. {"ID":0,"FORM":2,"MISC":3}')
     arg_parser.add_argument('--normalization_rule',help='normalize tokens during training/testing, normalization rules implemented are greek_glaux and standard NFD/NFKD/NFC/NFKC')
     arg_parser.add_argument('--label_column',help='column name that includes labels, if you want to add them to the output file (otherwise don\'t specify)')
@@ -136,13 +136,13 @@ if __name__ == '__main__':
         layers = [int(x) for x in args.layers.split(',')]
     extractor = VectorExtractor(transformer_path=args.transformer_path,tokenizer_path=args.tokenizer_path,data_path=args.data,data_preset=args.data_preset,feature_cols=feature_cols)
     if args.label_column is not None:
-        wids, tokens, tags = extractor.reader.read_tags(args.label_column,extractor.data,in_feats=False)
+        wids, tokens, tags = extractor.reader.read_tokens(args.label_column,extractor.data,in_feats=False)
         tokens_norm = tokens
         if args.normalization_rule is not None:
             tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
         dataset = Datasets.build_dataset(tokens_norm, {args.label_column:tags}, wids)
     else:
-        wids, tokens = extractor.reader.read_tags(None,extractor.data,in_feats=False,return_tags=False)
+        wids, tokens = extractor.reader.read_tokens(None,extractor.data,in_feats=False,return_tags=False)
         tokens_norm = tokens
         if args.normalization_rule is not None:
             tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)

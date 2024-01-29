@@ -17,7 +17,7 @@ from tqdm import tqdm
 class Tagger:
 
     def __init__(self, transformer_path, tokenizer_path, model_dir, training_data=None, test_data=None,
-                 lexicon_file=None, possible_tags_file=None, data_preset='CONLL', feats=['UPOS', 'XPOS', 'FEATS'],
+                 lexicon_file=None, possible_tags_file=None, data_preset='CONLLU', feats=['UPOS', 'XPOS', 'FEATS'],
                  unknown_label=None, all_tag_combinations=False, add_training_data_to_lexicon=True,
                  normalization_rule=None, is_joint=False):
         self.reader = CONLLReader(preset=data_preset)
@@ -71,9 +71,9 @@ class Tagger:
             tags = []
             if self.test_data is not None:
                 if feat == 'UPOS' or feat == 'XPOS':
-                    tags = self.reader.read_tags(feat, self.test_data, return_wids=False, return_tokens=False)
+                    tags = self.reader.read_tokens(feat, self.test_data, return_wids=False, return_tokens=False)
                 else:
-                    tags = self.reader.read_tags(feat, self.test_data, in_feats=True, return_wids=False,
+                    tags = self.reader.read_tokens(feat, self.test_data, in_feats=True, return_wids=False,
                                                  return_tokens=False)
             else:
                 for sent in tokens:
@@ -98,9 +98,9 @@ class Tagger:
         for feat_idx, feat in enumerate(self.feature_dict):
             if self.is_joint:
                 if feat == 'UPOS' or feat == 'XPOS':
-                    tags = self.reader.read_tags(feat, self.training_data, return_wids=False, return_tokens=False)
+                    tags = self.reader.read_tokens(feat, self.training_data, return_wids=False, return_tokens=False)
                 else:
-                    tags = self.reader.read_tags(feat, self.training_data, in_feats=True, return_wids=False,
+                    tags = self.reader.read_tokens(feat, self.training_data, in_feats=True, return_wids=False,
                                                  return_tokens=False)
                 tag2id, id2tag = classifier.id_label_mappings(tags)
                 task_info = Task(
@@ -137,9 +137,9 @@ class Tagger:
         id2tag_all = {}
         for feat in tqdm(self.feature_dict, desc="Reading feat data"):
             if feat == 'UPOS' or feat == 'XPOS':
-                tags = self.reader.read_tags(feat, self.training_data, return_wids=False, return_tokens=False)
+                tags = self.reader.read_tokens(feat, self.training_data, return_wids=False, return_tokens=False)
             else:
-                tags = self.reader.read_tags(feat, self.training_data, in_feats=True, return_wids=False,
+                tags = self.reader.read_tokens(feat, self.training_data, in_feats=True, return_wids=False,
                                              return_tokens=False)
             tag_dict[feat] = tags
             tag2id, id2tag = feat_classifier.id_label_mappings(tags)
@@ -344,16 +344,16 @@ class Tagger:
         else:
             return best_tags
 
-    def write_prediction(self, wids, tokens, tokens_norm, best_tags, output_file, output_format='CONLL', num_poss=None,
+    def write_prediction(self, wids, tokens, tokens_norm, best_tags, output_file, output_format='CONLLU', num_poss=None,
                          output_gold=True, output_sentence=True):
         if output_gold:
             tags_gold = dict()
             for feat in self.feature_dict:
                 if feat == 'UPOS' or feat == 'XPOS':
-                    tags_gold[feat] = self.reader.read_tags(feat, self.test_data, return_tokens=False,
+                    tags_gold[feat] = self.reader.read_tokens(feat, self.test_data, return_tokens=False,
                                                             return_wids=False)
                 else:
-                    tags_gold[feat] = self.reader.read_tags(feat, self.test_data, in_feats=True, return_tokens=False,
+                    tags_gold[feat] = self.reader.read_tokens(feat, self.test_data, in_feats=True, return_tokens=False,
                                                             return_wids=False)
         with open(output_file, 'w', encoding='UTF-8') as outfile:
             if output_format == 'tab':
@@ -379,7 +379,7 @@ class Tagger:
                         upos = tag["UPOS"]
                     if 'XPOS' in self.feats:
                         xpos = tag["XPOS"]
-                    if output_format == 'CONLL':
+                    if output_format == 'CONLLU':
                         morph = ""
                         for feat, val in tag.items():
                             if feat != 'UPOS' and feat != 'XPOS' and val != '_':
@@ -417,7 +417,7 @@ class Tagger:
                                 sent_str += ' '
                             outfile.write('\t' + sent_str.strip())
                         outfile.write('\n')
-                if output_format == 'CONLL':
+                if output_format == 'CONLLU':
                     outfile.write('\n')
 
     def prediction_string(self, tokens, wids, all_tags):
@@ -539,10 +539,10 @@ if __name__ == '__main__':
     arg_parser.add_argument('--test_data', help='tagger test data')
     arg_parser.add_argument('--output_file', help='tagged data')
     arg_parser.add_argument('--output_format',
-                            help='format of the output data: CONLL (standard CONLL, with prediction in MISC) or tab ('
+                            help='format of the output data: CONLLU (standard CONLLU, with prediction in MISC) or tab ('
                                  'tabular format, with tag probability, number possible tags, whether the tag occurs '
                                  'in the lexicon, and without sentence boundaries)',
-                            default='CONLL')
+                            default='CONLLU')
     arg_parser.add_argument('--unknown_label',
                             help='tag in the test data for tokens for which we do not know the label beforehand')
     arg_parser.add_argument('--possible_tags_file',
@@ -558,8 +558,8 @@ if __name__ == '__main__':
     arg_parser.add_argument('--tokenizer_add_prefix_space',
                             help='use option add_prefix_space for tokenizer (necessary for RobertaTokenizerFast)',
                             default=False, action=argparse.BooleanOptionalAction)
-    arg_parser.add_argument('--data_preset', help="format of the input data: default is CONLL",
-                            type=str, default='CONLL')
+    arg_parser.add_argument('--data_preset', help="format of the input data: default is CONLLU",
+                            type=str, default='CONLLU')
 
     args = arg_parser.parse_args()
     feats = None
@@ -573,7 +573,7 @@ if __name__ == '__main__':
             tagger = Tagger(training_data=args.training_data, tokenizer_path=args.tokenizer_path,
                             transformer_path=args.transformer_path, feats=feats, model_dir=args.model_dir,
                             data_preset=args.data_preset, is_joint=args.is_joint)
-            tokens = tagger.reader.read_tags(feature=None, data=tagger.training_data, return_wids=False,
+            tokens = tagger.reader.read_tokens(feature=None, data=tagger.training_data, return_wids=False,
                                              return_tags=False)
             tagger.train_models(tokens, batch_size=args.batch_size, epochs=args.epochs,
                                 normalization_rule=args.normalization_rule,
@@ -587,7 +587,7 @@ if __name__ == '__main__':
                             model_dir=args.model_dir, unknown_label=args.unknown_label, lexicon_file=args.lexicon,
                             possible_tags_file=args.possible_tags_file, data_preset=args.data_preset,
                             is_joint=args.is_joint)
-            wids, tokens = tagger.reader.read_tags(data=tagger.test_data, feature=None, return_tags=False)
+            wids, tokens = tagger.reader.read_tokens(data=tagger.test_data, feature=None, return_tags=False)
             tokens_norm = tokens
 
             if args.normalization_rule is not None:
