@@ -17,10 +17,10 @@ from tqdm import tqdm
 class Tagger:
 
     def __init__(self, transformer_path, tokenizer_path, model_dir, training_data=None, test_data=None,
-                 lexicon_file=None, possible_tags_file=None, data_preset='CONLLU', feats=['UPOS', 'XPOS', 'FEATS'],
+                 lexicon_file=None, possible_tags_file=None, data_preset='CONLLU', feature_cols=None, feats=['UPOS', 'XPOS', 'FEATS'],
                  unknown_label=None, all_tag_combinations=False, add_training_data_to_lexicon=True,
                  normalization_rule=None, is_joint=False):
-        self.reader = CONLLReader(preset=data_preset)
+        self.reader = CONLLReader(data_preset,feature_cols)
         self.transformer_path = transformer_path
         self.tokenizer_path = tokenizer_path
         self.feats = [feat.lstrip() for feat in feats]
