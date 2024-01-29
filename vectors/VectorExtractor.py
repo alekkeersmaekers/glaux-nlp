@@ -8,24 +8,20 @@ from data import Datasets
 
 class VectorExtractor:
 
-    def align_wids_subwords(self,sentence, prefix_subword_id=None):
+    def align_wids_subwords(self,sentence):
         wids = sentence['wids']
-        input_ids = sentence['input_ids'][0]
-        offset = sentence['offset_mapping'][0]
+        subword_ids = sentence['subword_ids']
         wids_subwords = []
         id = -1
-        for i, current_offset in enumerate(offset):
-            x = current_offset[0]
-            y = current_offset[1]
-            if(x==0 and y!=0):
-                id+=1
-                wids_subwords.append(wids[id])
-            elif(x==0 and y==0):
+        previous_subword_id = -1
+        for subword_id in subword_ids:
+            if subword_id is None:
                 wids_subwords.append('-1')
-            elif(x!=0):
+            else:
+                if subword_id != previous_subword_id and subword_id is not None:
+                    id+=1
                 wids_subwords.append(wids[id])
-            if prefix_subword_id is not None and input_ids[i] == prefix_subword_id:
-                id-=1
+                previous_subword_id = subword_id
         sentence['wids_subwords'] =  wids_subwords
         return sentence
     
@@ -102,9 +98,6 @@ class VectorExtractor:
             self.tokenizer = AutoTokenizer.from_pretrained(transformer_path)
         else:
             self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-        self.prefix_subword_id = None
-        if '▁' in self.tokenizer.vocab.keys():
-            self.prefix_subword_id = self.tokenizer.convert_tokens_to_ids('▁')
         self.reader = CONLLReader(data_preset,feature_cols)
         if data_path is not None:
             self.data = self.reader.parse_conll(data_path)
@@ -155,7 +148,7 @@ if __name__ == '__main__':
             tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
         dataset = Datasets.build_dataset(tokens_norm, None, wids)
     dataset = dataset.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":extractor.tokenizer,"return_tensors":'pt'})
-    dataset = dataset.map(extractor.align_wids_subwords,fn_kwargs={"prefix_subword_id":extractor.prefix_subword_id})
+    dataset = dataset.map(extractor.align_wids_subwords)
     dataset.set_format("pt", columns=["input_ids","token_type_ids","attention_mask"], output_all_columns=True)
     dataset = dataset.map(extractor.get_embeddings,fn_kwargs={"model":extractor.model})
     extractor.extract_vectors(dataset,args.output,limit_wids=limit_wids,limit_labels=limit_labels,label_name=args.label_column,layers=layers,layer_combination_method=args.layer_combination_method,subwords_combination_method=args.subwords_combination_method)
