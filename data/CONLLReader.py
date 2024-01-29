@@ -47,6 +47,7 @@ class CONLLReader:
                 tokens = re.split(r'\n',sent)
                 for token in tokens:
                     sentence.append(re.split(r'\t',token))
+                sentences.append(sentence)
             return sentences
     
     def read_tokens(self, feature, data, in_feats=False, return_wids=True, return_tokens=True, return_tags=True):
