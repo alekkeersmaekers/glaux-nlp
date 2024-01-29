@@ -8,9 +8,8 @@ class LexiconProcessor:
     
     def add_data(self,data,feats,col_token=1,col_lemma=2,col_upos=3,col_xpos=4,col_morph=5,normalization_rule=None):
         for sent in data:
-            for line in sent.split("\n"):
-                split = line.split("\t")
-                morph = split[col_morph]
+            for word in sent:
+                morph = word[col_morph]
                 morph_dict = {}
                 if morph != '_':
                     for feat_val in morph.split('|'):
@@ -19,18 +18,18 @@ class LexiconProcessor:
                 tag = []
                 for feat in feats:
                     if feat == 'UPOS':
-                        tag.append((feat, split[col_upos]))
+                        tag.append((feat, word[col_upos]))
                     elif feat == 'XPOS':
-                        tag.append((feat, split[col_xpos]))
+                        tag.append((feat, word[col_xpos]))
                     elif feat == 'lemma':
-                        tag.append((feat, split[col_lemma]))
+                        tag.append((feat, word[col_lemma]))
                     else:
                         if feat in morph_dict:
                             tag.append((feat, morph_dict[feat]))
                         else:
                             tag.append((feat, '_'))
                 tag = tuple(tag)
-                form = split[col_token]
+                form = word[col_token]
                 if normalization_rule == 'greek_glaux':
                     form = Tokenization.normalize_greek_punctuation(form)
                     form = Tokenization.normalize_greek_nfd(form)

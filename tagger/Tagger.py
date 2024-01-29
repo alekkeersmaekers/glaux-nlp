@@ -196,10 +196,9 @@ class Tagger:
         feature_dict = dict()
         if self.training_data is not None:
             for sent in self.training_data:
-                for line in sent.split('\n'):
-                    split = line.rstrip().split('\t')
+                for word in sent:
                     if 'UPOS' in self.feats:
-                        current_upos = split[self.reader.feature_cols['UPOS']]
+                        current_upos = word[self.reader.feature_cols['UPOS']]
                         if 'UPOS' in feature_dict:
                             upos_values = feature_dict['UPOS']
                             upos_values.add(current_upos)
@@ -208,7 +207,7 @@ class Tagger:
                             upos_values.add(current_upos)
                             feature_dict['UPOS'] = upos_values
                     if 'XPOS' in self.feats:
-                        current_xpos = split[self.reader.feature_cols['XPOS']]
+                        current_xpos = word[self.reader.feature_cols['XPOS']]
                         if 'XPOS' in feature_dict:
                             xpos_values = feature_dict['XPOS']
                             xpos_values.add(current_xpos)
@@ -216,8 +215,8 @@ class Tagger:
                             xpos_values = set()
                             xpos_values.add(current_xpos)
                             feature_dict['XPOS'] = xpos_values
-                    if split[self.reader.feature_cols['FEATS']] != '_':
-                        morph = split[self.reader.feature_cols['FEATS']].split('|')
+                    if word[self.reader.feature_cols['FEATS']] != '_':
+                        morph = word[self.reader.feature_cols['FEATS']].split('|')
                         for feat in morph:
                             split_feat = feat.split('=')
                             if 'FEATS' in self.feats or split_feat[0] in self.feats:
@@ -255,17 +254,16 @@ class Tagger:
                 possible_tags.append(tag)
         elif self.training_data is not None and not self.all_tag_combinations:
             for sent in tqdm(self.training_data, desc="Building possible tags"):
-                for line in sent.split('\n'):
-                    split = line.rstrip().split('\t')
+                for word in sent:
                     tag = []
                     if 'FEATS' in self.reader.feature_cols:
-                        feats = split[self.reader.feature_cols['FEATS']]
+                        feats = word[self.reader.feature_cols['FEATS']]
                         feats_split = feats.split('|')
                     for feat in self.feature_dict:
                         if feat == 'UPOS':
-                            tag.append((feat, split[self.reader.feature_cols['UPOS']]))
+                            tag.append((feat, word[self.reader.feature_cols['UPOS']]))
                         elif feat == 'XPOS':
-                            tag.append((feat, split[self.reader.feature_cols['XPOS']]))
+                            tag.append((feat, word[self.reader.feature_cols['XPOS']]))
                         else:
                             if feats == '_':
                                 tag.append((feat, '_'))
