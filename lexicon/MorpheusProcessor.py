@@ -3,8 +3,20 @@ import re, os, beta_code, unicodedata
 
 class MorpheusProcessor:
     
+    word_accents = None
+    
     def __init__(self):
         self.stemtypes = os.getenv('MORPHLIB') + '/Greek/rule_files/stemtypes.table'
+    
+    def load_accents(self,accent_file):
+        word_accents = dict()
+        file = open(accent_file,encoding='utf-8')
+        lines = file.readlines()
+        for line in lines:
+            split = line.strip().split('\t')
+            if len(split) == 3:
+                word_accents[split[0]+'€'+split[1]] = split[2]
+        self.word_accents = word_accents
     
     def beta_to_uni(self,form):
         # First line is a fix for unicodedata where the order of the diaeresis is wrong, can be fixed when this is fixed
@@ -508,8 +520,29 @@ class MorpheusProcessor:
         prefix = ''
         augment = ''
         ending = ''
+        lemma_morpheus = ''
         discardAnalysis = False
+        descriptors = set()
+        non_accented = ['min','e(/','o(','tis','sfei=s','e)gw/','su/','nin','e)gw/ge']
         for line in lines:
+            if re.match('.*epic.*',line):
+                descriptors.add('epic')
+            if re.match('.*attic.*',line):
+                descriptors.add('attic')
+            if re.match('.*doric.*',line):
+                descriptors.add('doric') 
+            if re.match('.*ionic.*',line):
+                descriptors.add('ionic')
+            if re.match('.*aeolic.*',line):
+                descriptors.add('aeolic')
+            if re.match('.*poetic.*',line):
+                descriptors.add('poetic')
+            if re.match('.*late.*',line):
+                descriptors.add('late')
+            if re.match('.*laconia.*',line):
+                descriptors.add('laconia')
+            if re.match('.*boeotia.*',line):
+                descriptors.add('boeotia')
             if re.match('^:raw.*',line):
                 form = re.sub(':raw[ ]+','',line)
                 form = re.sub('[’᾽]','\'',form)
@@ -518,6 +551,7 @@ class MorpheusProcessor:
                 form = re.sub('s1\'','s\'',form)
             elif re.match('^:lem.*',line):
                 lemma = re.sub(':lem[ ]+','',line)
+                lemma_morpheus=re.sub('-pl','',lemma)
                 lemma = self.regularize_lemma(lemma,form)
             elif re.match('^:prvb.*',line):
                 prefix = re.sub(':prvb ','',line,1)
@@ -542,6 +576,8 @@ class MorpheusProcessor:
                 else:
                     comparative = False
             elif re.match('^:end.*',line):
+                dialects = ','.join(descriptors)
+                descriptors.clear()
                 ending = re.sub(':end ','',line,1)
                 ending = re.sub('\t.*', '',ending,1)
                 if re.match('.*(doric|aeolic|homeric|poetic).*',line) and not re.match('.*(ionic|attic).*',line) and not poetic:
@@ -704,6 +740,16 @@ class MorpheusProcessor:
                                 tag.append(('stem',stem))
                                 tag.append(('augment',augment))
                                 tag.append(('ending',ending))
+                                tag.append(('dialects',dialects))
+                                if self.word_accents is not None:
+                                    key = lemma_morpheus+'€'+re.sub('\\|','i',stem)
+                                    if not key in self.word_accents:
+                                        tag.append(('accent','NA'))
+                                        if not re.match('.*[/=].*',stem) and not lemma_morpheus in non_accented:
+                                            print('accent class not found: '+lemma_morpheus+' '+stem)
+                                    else:
+                                        accent = self.word_accents[key]
+                                        tag.append(('accent',accent))
                                 tag = tuple(tag)
                                 if form_uni in lexicon:
                                     tags = lexicon[form_uni]
@@ -798,6 +844,8 @@ class MorpheusProcessor:
                                 tag.append(('stem',stem))
                                 tag.append(('augment',augment))
                                 tag.append(('ending',ending))
+                                tag.append(('dialects',dialects))
+                                tag.append(('accent','NA'))
                                 tag = tuple(tag)
                                 if form_uni in lexicon:
                                     tags = lexicon[form_uni]
@@ -854,6 +902,8 @@ class MorpheusProcessor:
                         tag.append(('stem',stem))
                         tag.append(('augment',augment))
                         tag.append(('ending',ending))
+                        tag.append(('dialects',dialects))
+                        tag.append(('accent','NA'))
                         tag = tuple(tag)
                         if form_uni in lexicon:
                             tags = lexicon[form_uni]
@@ -961,6 +1011,8 @@ class MorpheusProcessor:
                         tag.append(('stem',stem))
                         tag.append(('augment',augment))
                         tag.append(('ending',ending))
+                        tag.append(('dialects',dialects))
+                        tag.append(('accent','NA'))
                         tag = tuple(tag)
                         if form_uni in lexicon:
                             tags = lexicon[form_uni]
@@ -1030,6 +1082,8 @@ class MorpheusProcessor:
                             tag.append(('stem',stem))
                             tag.append(('augment',augment))
                             tag.append(('ending',ending))
+                            tag.append(('dialects',dialects))
+                            tag.append(('accent','NA'))
                             tag = tuple(tag)
                             if form_uni in lexicon:
                                 tags = lexicon[form_uni]

@@ -13,7 +13,6 @@ from lexicon.LexiconProcessor import LexiconProcessor
 from data import Datasets
 from tqdm import tqdm
 
-
 class Tagger:
 
     def __init__(self, transformer_path, tokenizer_path, model_dir, training_data=None, test_data=None,
@@ -438,6 +437,35 @@ class Tagger:
                     word in self.lexicon) + '&nbsp;&nbsp;&nbsp;&nbsp;' + str(tag) + '&nbsp;&nbsp;&nbsp;&nbsp;' + str(
                     second_tag) + '<br>')
         return output
+    
+    def predictions_table(self,best_tags,tokens):
+        table = {}
+        flattened_tokens = sum(tokens,[])
+        for index, word in enumerate(best_tags):
+            if 'form' in table:
+                form_vals = table['form']
+            else:
+                form_vals = []
+            form_vals.append(flattened_tokens[index])
+            table['form'] = form_vals
+            tag = word[0]
+            prob = word[1]
+            for feat in tag:
+                key = feat[0]
+                val = feat[1]
+                if key in table:
+                    feature_vals = table[key]
+                else:
+                    feature_vals = []
+                feature_vals.append(val)
+                table[key] = feature_vals
+            if 'probability' in table:
+                prob_vals = table['probability']
+            else:
+                prob_vals = []
+            prob_vals.append(prob)
+            table['probability'] = prob_vals
+        return table 
 
     def read_lexicon(self, file):
         lexicon = {}

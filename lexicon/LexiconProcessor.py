@@ -61,7 +61,7 @@ class LexiconProcessor:
                         for feat in morph_feats:
                             val = analysis_dict[feat]
                             if val != '_':
-                                morph += feat + '=' + val + '|'
+                                morph += feat + ':' + val + '$'
                         if len(morph) == 0:
                             morph = '_'
                         else:
