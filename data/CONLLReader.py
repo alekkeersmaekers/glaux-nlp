@@ -71,7 +71,7 @@ class CONLLReader:
                     else:
                         if self.preset == 'CONLLU':
                             if feature in word[self.feature_cols['FEATS']]:
-                                feat_val = word[self.feature_cols['FEATS']]['FEAT']
+                                feat_val = word[self.feature_cols['FEATS']][feature]
                                 val_str = ''
                                 for val in feat_val:
                                     val_str += val
