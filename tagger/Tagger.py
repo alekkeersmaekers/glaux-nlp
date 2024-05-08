@@ -269,7 +269,7 @@ class Tagger:
                     tag = []
                     if 'FEATS' in self.reader.feature_cols:
                         feats = word[self.reader.feature_cols['FEATS']]
-                        if self.reader.preset == 'CONLLU':
+                        if self.reader.preset != 'CONLLU':
                             feats_split = feats.split('|')
                     for feat in self.feature_dict:
                         if feat == 'UPOS':
