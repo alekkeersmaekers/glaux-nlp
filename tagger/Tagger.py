@@ -214,7 +214,18 @@ class Tagger:
                             xpos_values = set()
                             xpos_values.add(current_xpos)
                             feature_dict['XPOS'] = xpos_values
-                    if word[self.reader.feature_cols['FEATS']] != '_':
+                    if self.reader.preset == "CONLLU":
+                        for key, val in word[self.reader.feature_cols['FEATS']].items():
+                            if 'FEATS' in self.feats or key in self.feats:
+                                if key in feature_dict:
+                                    feat_values = feature_dict[key]
+                                    feat_values.update(val)
+                                    feature_dict[key] = feat_values
+                                else:
+                                    feat_values = set()
+                                    feat_values.update(val)
+                                    feature_dict[key] = feat_values
+                    elif word[self.reader.feature_cols['FEATS']] != '_':
                         morph = word[self.reader.feature_cols['FEATS']].split('|')
                         for feat in morph:
                             split_feat = feat.split('=')
@@ -222,6 +233,7 @@ class Tagger:
                                 if split_feat[0] in feature_dict:
                                     feat_values = feature_dict[split_feat[0]]
                                     feat_values.add(split_feat[1])
+                                    feature_dict[split_feat[0]] = feat_values
                                 else:
                                     feat_values = set()
                                     feat_values.add(split_feat[1])
