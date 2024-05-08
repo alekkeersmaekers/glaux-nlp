@@ -282,7 +282,7 @@ class Tagger:
                                     tag.append((feat, '_'))
                                 else:
                                     val = next(iter(feats[feat]))
-                                    tag.append(feat,val)
+                                    tag.append((feat,val))
                             else:
                                 if feats == '_':
                                     tag.append((feat, '_'))
