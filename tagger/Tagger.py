@@ -269,25 +269,33 @@ class Tagger:
                     tag = []
                     if 'FEATS' in self.reader.feature_cols:
                         feats = word[self.reader.feature_cols['FEATS']]
-                        feats_split = feats.split('|')
+                        if self.reader.preset == 'CONLLU':
+                            feats_split = feats.split('|')
                     for feat in self.feature_dict:
                         if feat == 'UPOS':
                             tag.append((feat, word[self.reader.feature_cols['UPOS']]))
                         elif feat == 'XPOS':
                             tag.append((feat, word[self.reader.feature_cols['XPOS']]))
                         else:
-                            if feats == '_':
-                                tag.append((feat, '_'))
-                            else:
-                                found = False
-                                for feat_val in feats_split:
-                                    feat_val_split = feat_val.split('=')
-                                    if feat_val_split[0] == feat:
-                                        tag.append((feat_val_split[0], feat_val_split[1]))
-                                        found = True
-                                        break
-                                if not found:
+                            if self.reader.preset == 'CONLLU':
+                                if not feat in feats:
                                     tag.append((feat, '_'))
+                                else:
+                                    val = next(iter(feats[feat]))
+                                    tag.append(feat,val)
+                            else:
+                                if feats == '_':
+                                    tag.append((feat, '_'))
+                                else:
+                                    found = False
+                                    for feat_val in feats_split:
+                                        feat_val_split = feat_val.split('=')
+                                        if feat_val_split[0] == feat:
+                                            tag.append((feat_val_split[0], feat_val_split[1]))
+                                            found = True
+                                            break
+                                    if not found:
+                                        tag.append((feat, '_'))
                     tag = tuple(tag)
                     if tag not in possible_tags:
                         possible_tags.append(tag)
