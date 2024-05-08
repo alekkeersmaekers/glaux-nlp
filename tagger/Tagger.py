@@ -281,8 +281,12 @@ class Tagger:
                                 if not feat in feats:
                                     tag.append((feat, '_'))
                                 else:
-                                    val = next(iter(feats[feat]))
-                                    tag.append((feat,val))
+                                    val_str = ''
+                                    for val in feats[feat]:
+                                        val_str += val
+                                        val_str += ','
+                                    val_str = val_str[:-1]
+                                    tag.append((feat,val_str))
                             else:
                                 if feats == '_':
                                     tag.append((feat, '_'))

@@ -69,23 +69,35 @@ class CONLLReader:
                     if not in_feats:
                         tags.append(word[self.feature_cols[feature]])
                     else:
-                        if word[self.feature_cols['FEATS']] == '_':
-                            #feature_values = self.feature_dict[feature]
-                            #feature_values.add('_')
-                            tags.append('_')
+                        if self.preset == 'CONLLU':
+                            if feature in word[self.feature_cols['FEATS']]:
+                                feat_val = word[self.feature_cols['FEATS']]['FEAT']
+                                val_str = ''
+                                for val in feat_val:
+                                    val_str += val
+                                    val_str += ','
+                                val_str = val_str[:-1]
+                                tags.append(val_str)
+                            else:
+                                tags.append('_')
                         else:
-                            morph = word[self.feature_cols['FEATS']].split('|')
-                            in_conll = False
-                            for feature_value in morph:
-                                feat_split = feature_value.split('=')
-                                if feat_split[0] == feature:
-                                    tags.append(feat_split[1])
-                                    in_conll = True
-                                    break
-                            if not in_conll:
+                            if word[self.feature_cols['FEATS']] == '_':
                                 #feature_values = self.feature_dict[feature]
                                 #feature_values.add('_')
                                 tags.append('_')
+                            else:
+                                morph = word[self.feature_cols['FEATS']].split('|')
+                                in_conll = False
+                                for feature_value in morph:
+                                    feat_split = feature_value.split('=')
+                                    if feat_split[0] == feature:
+                                        tags.append(feat_split[1])
+                                        in_conll = True
+                                        break
+                                if not in_conll:
+                                    #feature_values = self.feature_dict[feature]
+                                    #feature_values.add('_')
+                                    tags.append('_')
             wid_sents.append(wids)
             token_sents.append(tokens)
             tag_sents.append(tags)
