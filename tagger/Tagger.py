@@ -638,7 +638,7 @@ if __name__ == '__main__':
 
             if args.normalization_rule is not None:
                 tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
-            all_preds = tagger.tag_seperately(tokens_norm, batch_size=args.batch_size)
+            all_preds = tagger.tag_seperately(tokens_norm, batch_size=args.batch_size, tokenizer_add_prefix_space=args.tokenizer_add_prefix_space)
             best_tags, num_poss = tagger.tag_data(tokens_norm, all_preds, False, True)
             if args.output_file is not None:
                 tagger.write_prediction(wids, tokens, tokens_norm, best_tags, args.output_file, args.output_format,

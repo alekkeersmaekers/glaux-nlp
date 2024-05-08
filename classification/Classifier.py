@@ -109,7 +109,11 @@ class Classifier:
                         print(self.tokenizer.decode(subword)+" "+str(sentence['offset_mapping'][subword_no]))
                 label = labels[label_match_id]
                 if not (self.ignore_label is not None and self.ignore_label==label):
-                    enc_labels[n_subword] = tag2id[label]
+                    # This is necessary to avoid an error, where the label in the test data does not occur in the training data
+                    if label not in tag2id:
+                        enc_labels[n_subword] = 0
+                    else:
+                        enc_labels[n_subword] = tag2id[label]
         
         sentence['labels'] = enc_labels
         return sentence
