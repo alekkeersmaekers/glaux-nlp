@@ -302,18 +302,6 @@ class JointClassifier(Classifier):
         super().__init__(transformer_path, model_dir, tokenizer_path, training_data, test_data, ignore_label,
                          unknown_label, data_preset, feature_cols, tokenizer_add_prefix_space)
 
-        self.tokenizer.pad_token = "[PAD]" if "[PAD]" in self.tokenizer.vocab else "<pad>"
-        self.tokenizer.pad_token_id = self.tokenizer.vocab[self.tokenizer.pad_token]
-        self.tokenizer.unk_token = "[UNK]" if "[UNK]" in self.tokenizer.vocab else "<unk>"
-        self.tokenizer.unk_token_id = self.tokenizer.vocab[self.tokenizer.unk_token]
-        self.tokenizer.cls_token = "[CLS]" if "[CLS]" in self.tokenizer.vocab else "<bos>"
-        self.tokenizer.cls_token_id = self.tokenizer.vocab[self.tokenizer.cls_token]
-        self.tokenizer.sep_token = "[SEP]" if "[SEP]" in self.tokenizer.vocab else "<eos>"
-        self.tokenizer.sep_token_id = self.tokenizer.vocab[self.tokenizer.sep_token]
-        self.tokenizer.mask_token = "[MASK]" if "[MASK]" in self.tokenizer.vocab else "<mask>"
-        self.tokenizer.mask_token_id = self.tokenizer.vocab[self.tokenizer.mask_token]
-
-
     def train_classifier(self, output_model, train_dataset, tag2id, id2tag, epochs=5, batch_size=16,
                          learning_rate=2e-5):
 
