@@ -171,8 +171,8 @@ class Tagger:
                 )
                 self.tasks.append(task_info)
 
-                feat_df = training_data_df[["tokens", task_info.name, 'input_ids', 'token_type_ids', 'attention_mask',
-                                            'offset_mapping', 'subword_ids']]
+# Should be rewritten to use Dataset.map as for the non-joint classifier
+                feat_df = training_data_df[["tokens", task_info.name, 'input_ids', 'attention_mask','subword_ids']]
                 feat_df = feat_df.assign(task_ids=task_info.id)
 
                 training_data_feat = Datasets.Dataset.from_pandas(feat_df).map(feat_classifier.align_labels,
