@@ -109,7 +109,7 @@ class Tagger:
                     label_list=list(tag2id.keys()),
                     type="token_classification" if feat != "dephead" else "question_answering"
                 )
-                tagger.tasks.append(task_info)
+                self.tasks.append(task_info)
 
             result = self.tag_individual_feat(feat, test_data, batch_size=batch_size)
             all_preds[result[0]] = result[1]
