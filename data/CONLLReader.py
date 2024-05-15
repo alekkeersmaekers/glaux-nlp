@@ -33,7 +33,7 @@ class CONLLReader:
             for sent in conll:
                 sentence = []
                 for token in sent:
-                    feats_without_sets = {k: [",".join(sorted(list(v)))] for k, v in token.feats.items()}
+                    feats_without_sets = {k: ",".join(sorted(list(v))) for k, v in token.feats.items()}
                     token_list = [token.id, token.form, token.lemma, token.upos, token.xpos, feats_without_sets,
                                   token.head, token.deprel, token.deps, token.misc]
                     sentence.append(token_list)
@@ -74,19 +74,11 @@ class CONLLReader:
                         if self.preset == 'CONLLU':
                             if feature in word[self.feature_cols['FEATS']]:
                                 feat_val = word[self.feature_cols['FEATS']][feature]
-                                feat_val = sorted(feat_val)
-                                val_str = ''
-                                for val in feat_val:
-                                    val_str += val
-                                    val_str += ','
-                                val_str = val_str[:-1]
-                                tags.append(val_str)
+                                tags.append(feat_val)
                             else:
                                 tags.append('_')
                         else:
                             if word[self.feature_cols['FEATS']] == '_':
-                                #feature_values = self.feature_dict[feature]
-                                #feature_values.add('_')
                                 tags.append('_')
                             else:
                                 morph = word[self.feature_cols['FEATS']].split('|')
@@ -98,8 +90,6 @@ class CONLLReader:
                                         in_conll = True
                                         break
                                 if not in_conll:
-                                    #feature_values = self.feature_dict[feature]
-                                    #feature_values.add('_')
                                     tags.append('_')
             wid_sents.append(wids)
             token_sents.append(tokens)

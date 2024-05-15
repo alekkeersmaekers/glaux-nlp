@@ -219,11 +219,11 @@ class Tagger:
                             if 'FEATS' in self.feats or key in self.feats:
                                 if key in feature_dict:
                                     feat_values = feature_dict[key]
-                                    feat_values.update(val)
+                                    feat_values.add(val)
                                     feature_dict[key] = feat_values
                                 else:
                                     feat_values = set()
-                                    feat_values.update(val)
+                                    feat_values.add(val)
                                     feature_dict[key] = feat_values
                     elif word[self.reader.feature_cols['FEATS']] != '_':
                         morph = word[self.reader.feature_cols['FEATS']].split('|')
@@ -281,12 +281,7 @@ class Tagger:
                                 if not feat in feats:
                                     tag.append((feat, '_'))
                                 else:
-                                    val_str = ''
-                                    for val in feats[feat]:
-                                        val_str += val
-                                        val_str += ','
-                                    val_str = val_str[:-1]
-                                    tag.append((feat,val_str))
+                                    tag.append((feat,feats[feat]))
                             else:
                                 if feats == '_':
                                     tag.append((feat, '_'))
@@ -315,6 +310,7 @@ class Tagger:
                 try:
                     prob_attr = preds[feat[0]][word_no][feat[1]]
                 except KeyError:
+                    prob_attr = 0
                     print('Feature not found (probably mismatch with lexicon): ' + feat[0] + ' ' + feat[1])
                 except IndexError:
                     print(word_no)
