@@ -33,7 +33,9 @@ class CONLLReader:
             for sent in conll:
                 sentence = []
                 for token in sent:
-                    token_list = [token.id,token.form,token.lemma,token.upos,token.xpos,token.feats,token.head,token.deprel,token.deps,token.misc]
+                    feats_without_sets = {k: [",".join(sorted(list(v)))] for k, v in token.feats.items()}
+                    token_list = [token.id, token.form, token.lemma, token.upos, token.xpos, feats_without_sets,
+                                  token.head, token.deprel, token.deps, token.misc]
                     sentence.append(token_list)
                 sentences.append(sentence)
             return sentences
@@ -72,6 +74,7 @@ class CONLLReader:
                         if self.preset == 'CONLLU':
                             if feature in word[self.feature_cols['FEATS']]:
                                 feat_val = word[self.feature_cols['FEATS']][feature]
+                                feat_val = sorted(feat_val)
                                 val_str = ''
                                 for val in feat_val:
                                     val_str += val
