@@ -17,7 +17,7 @@ class Tagger:
 
     def __init__(self, transformer_path, tokenizer_path, model_dir, training_data=None, test_data=None,
                  lexicon_file=None, possible_tags_file=None, data_preset='CONLLU', feature_cols=None, feats=['UPOS', 'XPOS', 'FEATS'],
-                 unknown_label=None, all_tag_combinations=False, add_training_data_to_lexicon=True,
+                 unknown_label=None, add_training_data_to_possible_tags=True, add_training_data_to_lexicon=True,
                  normalization_rule=None, is_joint=False):
         self.reader = CONLLReader(data_preset,feature_cols)
         self.transformer_path = transformer_path
@@ -33,7 +33,6 @@ class Tagger:
             self.test_data = self.reader.parse_conll(test_data)
         else:
             self.test_data = None
-        self.all_tag_combinations = all_tag_combinations
         self.feature_dict = self.build_feature_dict()
         if lexicon_file is not None:
             self.lexicon = self.read_lexicon(lexicon_file)
@@ -48,6 +47,7 @@ class Tagger:
         self.possible_tags = self.build_possible_tags(possible_tags_file)
         self.normalization_rule = normalization_rule
         self.is_joint = is_joint
+        self.add_training_data_to_possible_tags = add_training_data_to_possible_tags
 
     def tag_individual_feat(self, feat, test_data, batch_size=16):
         if not self.is_joint:
@@ -263,7 +263,7 @@ class Tagger:
                     tag.append((feat, vals[feat_col[feat]]))
                 tag = tuple(tag)
                 possible_tags.append(tag)
-        elif self.training_data is not None and not self.all_tag_combinations:
+        if self.training_data is not None and self.add_training_data_to_possible_tags:
             for sent in tqdm(self.training_data, desc="Building possible tags"):
                 for word in sent:
                     tag = []
@@ -298,7 +298,7 @@ class Tagger:
                     tag = tuple(tag)
                     if tag not in possible_tags:
                         possible_tags.append(tag)
-        else:
+        elif possible_tags_file is None:
             return None
         return possible_tags
 
