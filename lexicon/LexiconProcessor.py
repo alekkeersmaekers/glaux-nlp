@@ -6,15 +6,20 @@ class LexiconProcessor:
     def __init__(self,lexicon):
         self.lexicon = lexicon
     
-    def add_data(self,data,feats,col_token=1,col_lemma=2,col_upos=3,col_xpos=4,col_morph=5,normalization_rule=None):
+    def add_data(self, data, feats, col_token=1, col_lemma=2, col_upos=3, col_xpos=4, col_morph=5,
+                 normalization_rule=None, reader_preset="CONLLU"):
         for sent in data:
             for word in sent:
                 morph = word[col_morph]
                 morph_dict = {}
-                if morph != '_':
-                    for feat_val in morph.split('|'):
-                        feat, val = feat_val.split('=')
-                        morph_dict[feat] = val
+                if reader_preset == "CONLLU":
+                    if morph != {}:
+                        morph_dict = morph
+                else:
+                    if morph != '_':
+                        for feat_val in morph.split('|'):
+                            feat, val = feat_val.split('=')
+                            morph_dict[feat] = val
                 tag = []
                 for feat in feats:
                     if feat == 'UPOS':

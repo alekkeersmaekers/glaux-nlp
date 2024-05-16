@@ -41,7 +41,8 @@ class Tagger:
                 lp = LexiconProcessor(self.lexicon)
                 lp.add_data(self.training_data, feats=self.feature_dict, col_token=self.reader.feature_cols['FORM'],
                             col_upos=self.reader.feature_cols['UPOS'], col_xpos=self.reader.feature_cols['XPOS'],
-                            col_morph=self.reader.feature_cols['FEATS'], normalization_rule=normalization_rule)
+                            col_morph=self.reader.feature_cols['FEATS'], normalization_rule=normalization_rule,
+                            reader_preset=self.reader.preset)
         else:
             self.lexicon = None
         self.add_training_data_to_possible_tags = add_training_data_to_possible_tags
