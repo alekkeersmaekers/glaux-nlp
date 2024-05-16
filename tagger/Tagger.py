@@ -44,10 +44,10 @@ class Tagger:
                             col_morph=self.reader.feature_cols['FEATS'], normalization_rule=normalization_rule)
         else:
             self.lexicon = None
+        self.add_training_data_to_possible_tags = add_training_data_to_possible_tags
         self.possible_tags = self.build_possible_tags(possible_tags_file)
         self.normalization_rule = normalization_rule
         self.is_joint = is_joint
-        self.add_training_data_to_possible_tags = add_training_data_to_possible_tags
 
     def tag_individual_feat(self, feat, test_data, batch_size=16):
         if not self.is_joint:
