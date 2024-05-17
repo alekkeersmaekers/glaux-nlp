@@ -607,6 +607,10 @@ if __name__ == '__main__':
                             default=False, action=argparse.BooleanOptionalAction)
     arg_parser.add_argument('--data_preset', help="format of the input data: default is CONLLU",
                             type=str, default='CONLLU')
+    arg_parser.add_argument('--add_training_data_to_possible_tags',
+                            help="adding tag combinations from the training data that are initially not permitted "
+                                 "by the constraints, default is True",
+                            type=str, default=True)
 
     args = arg_parser.parse_args()
     feats = None
@@ -633,6 +637,7 @@ if __name__ == '__main__':
                             tokenizer_path=args.tokenizer_path, transformer_path=args.transformer_path, feats=feats,
                             model_dir=args.model_dir, unknown_label=args.unknown_label, lexicon_file=args.lexicon,
                             possible_tags_file=args.possible_tags_file, data_preset=args.data_preset,
+                            add_training_data_to_possible_tags=args.add_training_data_to_possible_tags,
                             is_joint=args.is_joint)
             wids, tokens = tagger.reader.read_tokens(data=tagger.test_data, feature=None, return_tags=False)
             tokens_norm = tokens
