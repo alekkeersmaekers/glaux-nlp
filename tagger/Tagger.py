@@ -607,10 +607,7 @@ if __name__ == '__main__':
                             default=False, action=argparse.BooleanOptionalAction)
     arg_parser.add_argument('--data_preset', help="format of the input data: default is CONLLU",
                             type=str, default='CONLLU')
-    arg_parser.add_argument('--add_training_data_to_possible_tags',
-                            help="adding tag combinations from the training data that are initially not permitted "
-                                 "by the constraints, default is True",
-                            type=str, default=True)
+    arg_parser.add_argument('--add_training_data_to_possible_tags', action=argparse.BooleanOptionalAction)
 
     args = arg_parser.parse_args()
     feats = None
