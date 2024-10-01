@@ -2,7 +2,7 @@ import re
 import unicodedata
 
 def tokenize_sentence(sentence, tokenizer, return_tensors=None):
-    encodings = tokenizer(sentence['tokens'], truncation=True, max_length=512, is_split_into_words=True, return_offsets_mapping=True,return_tensors=return_tensors)
+    encodings = tokenizer(sentence['tokens'], truncation=True, max_length=512, is_split_into_words=True,return_tensors=return_tensors)
     # You will get an error if a TokenizerFast cannot be used!!!
     encodings['subword_ids'] = encodings.word_ids()
     return encodings
@@ -22,15 +22,19 @@ def normalize_tokens(tokens,normalization_rule):
     for sent in tokens:
         sent_norm = []
         for word in sent:
-            if normalization_rule == 'greek_glaux':
-                word = normalize_greek_punctuation(word)
-                word = normalize_greek_nfd(word)
-                word = normalize_greek_accents(word)
-            elif normalization_rule == 'NFD' or normalization_rule == 'NFKD' or normalization_rule == 'NFC' or normalization_rule == 'NFKC':
-                word = unicodedata.normalize(normalization_rule,word)
+            word = normalize_token(word,normalization_rule)
             sent_norm.append(word)
         tokens_norm.append(sent_norm)
     return tokens_norm
+
+def normalize_token(token,normalization_rule):
+    if normalization_rule == 'greek_glaux':
+        token = normalize_greek_punctuation(token)
+        token = normalize_greek_nfd(token)
+        token = normalize_greek_accents(token)
+    elif normalization_rule == 'NFD' or normalization_rule == 'NFKD' or normalization_rule == 'NFC' or normalization_rule == 'NFKC':
+        token = unicodedata.normalize(normalization_rule,token)
+    return token
 
 def normalize_greek_accents(regularized: str):
     """
@@ -68,3 +72,6 @@ def greek_glaux_to_tokens(string):
     string = re.sub(r' $', '',string);
     tokens_str = string.split(' ')
     return tokens_str
+
+def strip_accents(string):
+    return ''.join(c for c in unicodedata.normalize('NFD', string) if unicodedata.category(c) != 'Mn')

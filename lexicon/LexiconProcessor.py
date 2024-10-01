@@ -50,7 +50,7 @@ class LexiconProcessor:
                     tags.append(tag)
                     self.lexicon[form] = tags
     
-    def write_lexicon(self,output,morph_feats,output_format='tab',lemma_name='lemma',pos_name='XPOS'):
+    def write_lexicon(self,output,morph_feats,output_format='tab',lemma_name='lemma',pos_name='XPOS',separator_feat='|',separator_val='='):
         entries_processed = set()
         with open(output, 'w', encoding='UTF-8') as outfile:
             if output_format=='tab':
@@ -66,7 +66,7 @@ class LexiconProcessor:
                         for feat in morph_feats:
                             val = analysis_dict[feat]
                             if val != '_':
-                                morph += feat + ':' + val + '$'
+                                morph += feat + separator_val + val + separator_feat
                         if len(morph) == 0:
                             morph = '_'
                         else:

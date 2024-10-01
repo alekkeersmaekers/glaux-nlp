@@ -27,7 +27,10 @@ class VectorExtractor:
     
     def get_embeddings(self,sentence,model):
         with torch.no_grad():
-            output = model(input_ids=sentence['input_ids'],token_type_ids=sentence['token_type_ids'],attention_mask=sentence['attention_mask'])
+            if 'token_type_ids' in sentence:
+                output = model(input_ids=sentence['input_ids'],token_type_ids=sentence['token_type_ids'],attention_mask=sentence['attention_mask'])
+            else:
+                output = model(input_ids=sentence['input_ids'],attention_mask=sentence['attention_mask'])
         states = output.hidden_states
         embeddings = torch.stack(states).squeeze().permute(1,0,2)
         sentence['embeddings'] = embeddings
@@ -56,48 +59,79 @@ class VectorExtractor:
         elif layer_combination_method == 'sum':
             return torch.sum(torch.stack(vector_layers),dim=0).numpy()
     
-    def extract_vectors(self,dataset,output_file,limit_wids=None,limit_labels=None,label_name='MISC',layers=[-2],layer_combination_method='sum',subwords_combination_method='mean'):
-        with open(output_file, 'w', encoding='UTF-8') as outfile:
-            for sent in dataset:
+    def extract_vectors(self,dataset,limit_wids=None,limit_labels=None,exclude_labels=None,label_name='MISC',layers=[-2],layer_combination_method='sum',subwords_combination_method='mean',average_same_id=False):
+        vectors = {}
+        for sent in dataset:
+            for word_no, wid in enumerate(sent['wids']):
+                include = True
                 if limit_wids is not None:
-                    for word_no, wid in enumerate(sent['wids']):
-                        if wid in limit_wids:
-                            vector = self.get_vector(sent,wid,layers=layers,layer_combination_method=layer_combination_method,subwords_combination_method=subwords_combination_method)
-                            if label_name is not None:
-                                outfile.write(wid+'\t'+sent[label_name][word_no])
-                            else:
-                                outfile.write(wid)
-                            for element in vector:
-                                outfile.write("\t"+"{:0.5f}".format(element))
-                            outfile.write('\n')
+                    if not wid in limit_wids:
+                        include = False
                 elif limit_labels is not None:
-                    for word_no, wid in enumerate(sent['wids']):
-                        label = sent[label_name][word_no]
-                        if label in limit_labels:
-                            vector = self.get_vector(sent,wid,layers=layers,layer_combination_method=layer_combination_method,subwords_combination_method=subwords_combination_method)
-                            if label_name is not None:
-                                outfile.write(wid+'\t'+label)
-                            else:
-                                outfile.write(wid)
-                            for element in vector:
-                                outfile.write("\t"+"{:0.5f}".format(element))
-                            outfile.write('\n')
-                else:
-                    for word_no, wid in enumerate(sent['wids']):
-                        vector = self.get_vector(sent,wid,layers=layers,layer_combination_method=layer_combination_method,subwords_combination_method=subwords_combination_method)
-                        if label_name is not None:
-                            outfile.write(wid+'\t'+sent[label_name][word_no])
+                    label = sent[label_name][word_no]
+                    if not label in limit_labels:
+                        include = False
+                elif exclude_labels is not None:
+                    label = sent[label_name][word_no]
+                    if label in exclude_labels:
+                        include = False
+                if include:
+                    vector = self.get_vector(sent,wid,layers=layers,layer_combination_method=layer_combination_method,subwords_combination_method=subwords_combination_method)
+                    if not average_same_id:
+                        vectors[wid] = vector
+                    else:
+                        if wid in vectors:
+                            vectors[wid].append(vector)
                         else:
-                            outfile.write(wid)
+                            vectors[wid] = [vector]
+        if not average_same_id:
+            return(vectors)
+        else:
+            averaged_vectors = {}
+            for wid, all_vectors in vectors.items():
+                length = len(all_vectors)
+                transposed = list(zip(*all_vectors))
+                averages = [sum(elements) / length for elements in transposed]
+                averaged_vectors[wid] = averages
+            return averaged_vectors    
+    
+    def build_dataset(self,wids,tokens,labels=None,label_name=None,normalization_rule=None):
+        tokens_norm = tokens
+        if normalization_rule is not None:
+            tokens_norm = Tokenization.normalize_tokens(tokens, normalization_rule)
+        if label_name is not None and labels is not None:
+            dataset = Datasets.build_dataset(tokens_norm, {label_name:labels}, wids)
+        else:
+            dataset = Datasets.build_dataset(tokens_norm, None, wids)
+        dataset = dataset.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":self.tokenizer,"return_tensors":'pt'})
+        dataset = dataset.map(self.align_wids_subwords)
+        if "token_type_ids" in dataset:
+            dataset.set_format("pt", columns=["input_ids","token_type_ids","attention_mask"], output_all_columns=True)
+        else:
+            dataset.set_format("pt", columns=["input_ids","attention_mask"], output_all_columns=True)
+        dataset = dataset.map(self.get_embeddings,fn_kwargs={"model":self.model})
+        return dataset
+        
+    def write_vectors(self,vectors,output_file,ids,tokens=None,labels=None,precision=5):
+        with open(output_file, 'w', encoding='UTF-8') as outfile:
+            for sentence_no, sentence in enumerate(ids):
+                for word_no, word in enumerate(sentence):
+                    if word in vectors:
+                        outfile.write(word)
+                        if tokens is not None:
+                            outfile.write('\t'+tokens[sentence_no][word_no])
+                        if labels is not None:
+                            outfile.write('\t'+labels[sentence_no][word_no])
+                        vector = vectors[word]
                         for element in vector:
-                            outfile.write("\t"+"{:0.5f}".format(element))
+                            outfile.write("\t"+("{:0."+str(precision)+"f}").format(element))
                         outfile.write('\n')
 
-    def __init__(self,transformer_path,tokenizer_path,data_path=None,data_preset='CONLLU',feature_cols=None):
+    def __init__(self,transformer_path,tokenizer_path=None,data_path=None,data_preset='CONLLU',feature_cols=None,tokenizer_add_prefix_space=False):
         if tokenizer_path is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(transformer_path)
+            self.tokenizer = AutoTokenizer.from_pretrained(transformer_path,add_prefix_space=tokenizer_add_prefix_space)
         else:
-            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path,add_prefix_space=tokenizer_add_prefix_space)
         self.reader = CONLLReader(data_preset,feature_cols)
         if data_path is not None:
             self.data = self.reader.parse_conll(data_path)
@@ -116,6 +150,7 @@ if __name__ == '__main__':
     arg_parser.add_argument('--label_column',help='column name that includes labels, if you want to add them to the output file (otherwise don\'t specify)')
     arg_parser.add_argument('--limit_wids',help='only generate vectors when word has one of these wids (separated by commas)')
     arg_parser.add_argument('--limit_labels',help='only generate vectors when word has one of these labels (separated by commas)')
+    arg_parser.add_argument('--exclude_labels',help='opposite of limit labels, only generate vectors when word does not have one of these labels (separated by commas)')
     arg_parser.add_argument('--layers',help='layers you want to extract (separated by commas)',default='2')
     arg_parser.add_argument('--layer_combination_method',help='method to combine multiple layers (sum/concatenate)',default='sum')
     arg_parser.add_argument('--subwords_combination_method',help='method to combine vectors of multiple subwords (mean/first/last)',default='mean')
@@ -132,24 +167,19 @@ if __name__ == '__main__':
     limit_wids = None
     if args.limit_wids is not None:
         limit_wids = args.limit_wids.split(',')
+    exclude_labels = None
+    if args.exclude_labels is not None:
+        exclude_labels = args.exclude_labels.split(',')
     if args.layers is not None:
         layers = [int(x) for x in args.layers.split(',')]
+    
     extractor = VectorExtractor(transformer_path=args.transformer_path,tokenizer_path=args.tokenizer_path,data_path=args.data,data_preset=args.data_preset,feature_cols=feature_cols)
     if args.label_column is not None:
-        wids, tokens, tags = extractor.reader.read_tokens(args.label_column,extractor.data,in_feats=False)
-        tokens_norm = tokens
-        if args.normalization_rule is not None:
-            tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
-        dataset = Datasets.build_dataset(tokens_norm, {args.label_column:tags}, wids)
+        wids, tokens, tags = extractor.reader.read_tokens(extractor.data,args.label_column,in_feats=False)
+        dataset = extractor.build_dataset(wids,tokens,tags,args.label_column,args.normalization_rule)
     else:
-        wids, tokens = extractor.reader.read_tokens(None,extractor.data,in_feats=False,return_tags=False)
-        tokens_norm = tokens
-        if args.normalization_rule is not None:
-            tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
-        dataset = Datasets.build_dataset(tokens_norm, None, wids)
-    dataset = dataset.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":extractor.tokenizer,"return_tensors":'pt'})
-    dataset = dataset.map(extractor.align_wids_subwords)
-    dataset.set_format("pt", columns=["input_ids","token_type_ids","attention_mask"], output_all_columns=True)
-    dataset = dataset.map(extractor.get_embeddings,fn_kwargs={"model":extractor.model})
-    extractor.extract_vectors(dataset,args.output,limit_wids=limit_wids,limit_labels=limit_labels,label_name=args.label_column,layers=layers,layer_combination_method=args.layer_combination_method,subwords_combination_method=args.subwords_combination_method)
+        wids, tokens = extractor.reader.read_tokens(extractor.data, in_feats=False,return_tags=False)
+        dataset = extractor.build_dataset(wids,tokens,None,None,args.normalization_rule)
+    vectors = extractor.extract_vectors(dataset,limit_wids=limit_wids,limit_labels=limit_labels,exclude_labels=exclude_labels,label_name=args.label_column,layers=layers,layer_combination_method=args.layer_combination_method,subwords_combination_method=args.subwords_combination_method)
+    extractor.write_vectors(vectors, args.output, wids, tokens, tags)
     

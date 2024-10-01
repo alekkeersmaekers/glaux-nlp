@@ -7,3 +7,7 @@
 /tests/*
 /classification/Tester.py
 /tagger/Tester.py
+/*.ipynb
+/.ipynb_checkpoints/*
+/classification/.ipynb_checkpoints/*
+/glaux_sql/*

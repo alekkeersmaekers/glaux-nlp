@@ -22,6 +22,12 @@ class CONLLReader:
                 feature_cols['ID'] = 0
                 feature_cols['FORM'] = 1
                 feature_cols['MISC'] = 2
+            elif preset == 'simple_tagger':
+                feature_cols['ID'] = 0
+                feature_cols['FORM'] = 1
+                feature_cols['UPOS'] = 2
+                feature_cols['XPOS'] = 3
+                feature_cols['FEATS'] = 4
             self.feature_cols = feature_cols
         else:
             self.feature_cols = feature_cols
@@ -52,7 +58,7 @@ class CONLLReader:
                 sentences.append(sentence)
             return sentences
     
-    def read_tokens(self, feature, data, in_feats=False, return_wids=True, return_tokens=True, return_tags=True):
+    def read_tokens(self, data, feature=None, in_feats=False, return_wids=True, return_tokens=True, return_tags=True):
         # Reads the values for a given feature (UPOS, XPOS or morphological) from the training set, as well as the wids and forms
         wid_sents = []
         token_sents = []

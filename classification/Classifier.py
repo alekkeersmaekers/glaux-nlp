@@ -34,6 +34,8 @@ class Classifier:
             self.test_data = None
         self.ignore_label = ignore_label
         self.unknown_label = unknown_label
+        self.classifier_model = None
+        self.config = None
 
     
     def id_label_mappings(self,tags):
@@ -130,8 +132,9 @@ class Classifier:
             
     def predict(self,test_data,model_dir=None,batch_size=16,labelname='MISC'):        
         ##Only works when padding is set to the right!!! See below
-        self.classifier_model = AutoModelForTokenClassification.from_pretrained(model_dir)
-        self.config = AutoConfig.from_pretrained(model_dir)
+        if self.classifier_model is None:
+            self.classifier_model = AutoModelForTokenClassification.from_pretrained(model_dir)
+            self.config = AutoConfig.from_pretrained(model_dir)
         id2tag = self.config.id2label
         tag2id = self.config.label2id
         
@@ -203,63 +206,6 @@ class Classifier:
                             outfile.write('\n')
                 if output_format == 'CONLLU' or output_format == 'simple':
                     outfile.write('\n')
-                        
-if __name__ == '__main__':
-    arg_parser = ArgumentParser()
-    arg_parser.add_argument('mode',help='train/test')
-    arg_parser.add_argument('transformer_path',help='path to the transformer model')
-    arg_parser.add_argument('model_dir',help='path of classifier model')
-    arg_parser.add_argument('--tokenizer_path',help='path to the tokenizer (defaults to the path of the transformer model)')
-    arg_parser.add_argument('--training_data',help='classifier training data')
-    arg_parser.add_argument('--test_data',help='classifier test data')
-    arg_parser.add_argument('--output_file',help='classified data')
-    arg_parser.add_argument('--output_format',help='format of the output data: CONLLU (standard CONLLU, with prediction in MISC), simple (CONLL-style with only columns ID, FORM and MISC=prediction) or tab (tabular format, with prediction probabilities, no sentence boundaries and without irrelevant tokens)',default='CONLLU')
-    arg_parser.add_argument('--ignore_label',help='all tokens with this tag will be ignored during training or classification')
-    arg_parser.add_argument('--unknown_label',help='tag in the test data for tokens for which we do not know the label beforehand')
-    arg_parser.add_argument('--data_preset',help='format of the data, defaults to CONLLU (other option: simple, where the data has columns ID, FORM, MISC)',default='CONLLU')
-    arg_parser.add_argument('--feature_cols',help='define a custom format for the data, e.g. {"ID":0,"FORM":2,"MISC":3}')
-    arg_parser.add_argument('--normalization_rule',help='normalize tokens during training/testing, normalization rules implemented are greek_glaux and standard NFD/NFKD/NFC/NFKC')
-    arg_parser.add_argument('--epochs',help='number of epochs for training, defaults to 3',type=int,default=3)
-    arg_parser.add_argument('--batch_size',help='batch size for training/testing, defaults to 16',type=int,default=16)
-    arg_parser.add_argument('--learning_rate',help='learning rate for training, defaults to 5e-5',type=float,default=5e-5)
-    arg_parser.add_argument('--tokenizer_add_prefix_space',help='use option add_prefix_space for tokenizer (necessary for RobertaTokenizerFast)',default=False,action=argparse.BooleanOptionalAction)
-    args = arg_parser.parse_args()
-    feature_cols = args.feature_cols
-    if feature_cols is not None:
-        # Only required for Eclipse
-        feature_cols = json.loads(feature_cols.replace('\'','"'))
-        # Other
-        # feature_cols = json.loads(feature_cols)
-    if args.mode == 'train':
-        if args.training_data == None:
-            print('Training data is missing')
-        else:
-            classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols,args.tokenizer_add_prefix_space)
-            tokens, tags = classifier.reader.read_tokens('MISC', classifier.training_data, in_feats=False,return_wids=False)
-            tag_dict = {'MISC':tags}
-            tokens_norm = tokens
-            if args.normalization_rule is not None:
-                tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
-            tag2id, id2tag = classifier.id_label_mappings(tags)
-            training_data = Datasets.build_dataset(tokens_norm,tag_dict)
-            training_data = training_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":classifier.tokenizer})
-            training_data = training_data.map(classifier.align_labels,fn_kwargs={"tag2id":tag2id})
-            classifier.train_classifier(classifier.model_dir,training_data,tag2id=tag2id,id2tag=id2tag,epochs=args.epochs,batch_size=args.batch_size,learning_rate=args.learning_rate)
-    elif args.mode == 'test':
-        if args.test_data == None:
-            print('Test data is missing')
-        else:
-            classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols,args.tokenizer_add_prefix_space)
-            wids, tokens, tags = classifier.reader.read_tokens('MISC', classifier.test_data, False)
-            tags_dict = {'MISC':tags}
-            tokens_norm = tokens
-            if args.normalization_rule is not None:
-                tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
-            test_data = Datasets.build_dataset(tokens,tags_dict)
-            test_data = test_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":classifier.tokenizer})
-            prediction = classifier.predict(test_data,model_dir=classifier.model_dir,batch_size=args.batch_size)
-            if args.output_file is not None:
-                classifier.write_prediction(wids,tokens,tags,prediction,args.output_file,args.output_format)
 
 def compute_metrics(p: EvalPrediction):
     preds = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions
@@ -294,7 +240,7 @@ class Task:
     label_list: [str]
 
 
-class JointClassifier(Classifier):
+class MultitaskClassifier(Classifier):
 
     def __init__(self, transformer_path, model_dir, tokenizer_path, training_data=None, test_data=None,
                  ignore_label=None, unknown_label=None, data_preset='CONLLU', feature_cols=None,
@@ -370,3 +316,60 @@ class JointClassifier(Classifier):
         trainer.save_metrics("eval", metrics)
 
         return all_preds
+                        
+if __name__ == '__main__':
+    arg_parser = ArgumentParser()
+    arg_parser.add_argument('mode',help='train/test')
+    arg_parser.add_argument('transformer_path',help='path to the transformer model')
+    arg_parser.add_argument('model_dir',help='path of classifier model')
+    arg_parser.add_argument('--tokenizer_path',help='path to the tokenizer (defaults to the path of the transformer model)')
+    arg_parser.add_argument('--training_data',help='classifier training data')
+    arg_parser.add_argument('--test_data',help='classifier test data')
+    arg_parser.add_argument('--output_file',help='classified data')
+    arg_parser.add_argument('--output_format',help='format of the output data: CONLLU (standard CONLLU, with prediction in MISC), simple (CONLL-style with only columns ID, FORM and MISC=prediction) or tab (tabular format, with prediction probabilities, no sentence boundaries and without irrelevant tokens)',default='CONLLU')
+    arg_parser.add_argument('--ignore_label',help='all tokens with this tag will be ignored during training or classification')
+    arg_parser.add_argument('--unknown_label',help='tag in the test data for tokens for which we do not know the label beforehand')
+    arg_parser.add_argument('--data_preset',help='format of the data, defaults to CONLLU (other option: simple, where the data has columns ID, FORM, MISC)',default='CONLLU')
+    arg_parser.add_argument('--feature_cols',help='define a custom format for the data, e.g. {"ID":0,"FORM":2,"MISC":3}')
+    arg_parser.add_argument('--normalization_rule',help='normalize tokens during training/testing, normalization rules implemented are greek_glaux and standard NFD/NFKD/NFC/NFKC')
+    arg_parser.add_argument('--epochs',help='number of epochs for training, defaults to 3',type=int,default=3)
+    arg_parser.add_argument('--batch_size',help='batch size for training/testing, defaults to 16',type=int,default=16)
+    arg_parser.add_argument('--learning_rate',help='learning rate for training, defaults to 5e-5',type=float,default=5e-5)
+    arg_parser.add_argument('--tokenizer_add_prefix_space',help='use option add_prefix_space for tokenizer (necessary for RobertaTokenizerFast)',default=False,action=argparse.BooleanOptionalAction)
+    args = arg_parser.parse_args()
+    feature_cols = args.feature_cols
+    if feature_cols is not None:
+        # Only required for Eclipse
+        feature_cols = json.loads(feature_cols.replace('\'','"'))
+        # Other
+        # feature_cols = json.loads(feature_cols)
+    if args.mode == 'train':
+        if args.training_data == None:
+            print('Training data is missing')
+        else:
+            classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols,args.tokenizer_add_prefix_space)
+            tokens, tags = classifier.reader.read_tokens(classifier.training_data, 'MISC', in_feats=False,return_wids=False)
+            tag_dict = {'MISC':tags}
+            tokens_norm = tokens
+            if args.normalization_rule is not None:
+                tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
+            tag2id, id2tag = classifier.id_label_mappings(tags)
+            training_data = Datasets.build_dataset(tokens_norm,tag_dict)
+            training_data = training_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":classifier.tokenizer})
+            training_data = training_data.map(classifier.align_labels,fn_kwargs={"tag2id":tag2id})
+            classifier.train_classifier(classifier.model_dir,training_data,tag2id=tag2id,id2tag=id2tag,epochs=args.epochs,batch_size=args.batch_size,learning_rate=args.learning_rate)
+    elif args.mode == 'test':
+        if args.test_data == None:
+            print('Test data is missing')
+        else:
+            classifier = Classifier(args.transformer_path,args.model_dir,args.tokenizer_path,args.training_data,args.test_data,args.ignore_label,args.unknown_label,args.data_preset,feature_cols,args.tokenizer_add_prefix_space)
+            wids, tokens, tags = classifier.reader.read_tokens(classifier.test_data, 'MISC', False)
+            tags_dict = {'MISC':tags}
+            tokens_norm = tokens
+            if args.normalization_rule is not None:
+                tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
+            test_data = Datasets.build_dataset(tokens,tags_dict)
+            test_data = test_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":classifier.tokenizer})
+            prediction = classifier.predict(test_data,model_dir=classifier.model_dir,batch_size=args.batch_size)
+            if args.output_file is not None:
+                classifier.write_prediction(wids,tokens,tags,prediction,args.output_file,args.output_format)
