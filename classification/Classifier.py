@@ -15,7 +15,7 @@ from data import Datasets
 
 class Classifier:
     
-    def __init__(self,transformer_path,model_dir,tokenizer_path,training_data=None,test_data=None,ignore_label=None,unknown_label=None,data_preset='CONLLU',feature_cols=None,tokenizer_add_prefix_space=False):
+    def __init__(self,transformer_path,model_dir,tokenizer_path=None,training_data=None,test_data=None,ignore_label=None,unknown_label=None,data_preset='CONLLU',feature_cols=None,tokenizer_add_prefix_space=False):
         self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         if tokenizer_path is None:
             self.tokenizer = AutoTokenizer.from_pretrained(transformer_path,add_prefix_space=tokenizer_add_prefix_space)

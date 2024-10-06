@@ -11,3 +11,6 @@
 /.ipynb_checkpoints/*
 /classification/.ipynb_checkpoints/*
 /glaux_sql/*
+/classification/Tester.py
+/files/*
+/models/*
