@@ -124,7 +124,8 @@ class Classifier:
         data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer)        
         self.config = AutoConfig.from_pretrained(self.transformer_path, num_labels=len(tag2id), id2label=id2tag, label2id=tag2id)
         self.classifier_model = AutoModelForTokenClassification.from_pretrained(self.transformer_path,config=self.config)
-        
+        # Fixes a bug with new version of transformers library
+        for param in self.classifier_model.parameters(): param.data = param.data.contiguous()
         training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,learning_rate=learning_rate,save_strategy='no')
         trainer = Trainer(model=self.classifier_model,args=training_args,train_dataset=train_dataset,tokenizer=self.tokenizer,data_collator=data_collator)
         trainer.train()
