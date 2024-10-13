@@ -16,13 +16,15 @@ import json
 
 class Tagger:
 
-    def __init__(self, transformer_path, tokenizer_path, model_dir, training_data=None, test_data=None,
+    def __init__(self, transformer_path, model_dir, tokenizer_path=None, training_data=None, test_data=None,
                  lexicon_file=None, possible_tags_file=None, data_preset='CONLLU', feature_cols=None, feats=['UPOS', 'XPOS', 'FEATS'],
                  unknown_label=None, add_training_data_to_possible_tags=True, add_training_data_to_lexicon=True,
                  normalization_rule=None, is_multitask=False):
         self.reader = CONLLReader(data_preset,feature_cols)
         self.transformer_path = transformer_path
         self.tokenizer_path = tokenizer_path
+        if tokenizer_path == None:
+            self.tokenizer_path = self.transformer_path
         self.feats = [feat.lstrip() for feat in feats]
         self.model_dir = model_dir
         self.unknown_label = unknown_label
