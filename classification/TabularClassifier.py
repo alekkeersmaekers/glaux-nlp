@@ -7,7 +7,7 @@ class TabularClassifier:
         if td_file is not None:
             if td_format == 'tabular':
                 if class_column is not None:
-                    self.training_data = pd.read_csv(td_file, sep="\t", header=0, encoding="utf-8", quoting=3, dtype={class_column:'category'})
+                    self.training_data = pd.read_csv(td_file, sep="\t", header=0, encoding="utf-8", quoting=3)
                 else:
                     self.training_data = pd.read_csv(td_file, sep="\t", header=0, encoding="utf-8", quoting=3)
             if normalize_columns is not None:
@@ -15,14 +15,18 @@ class TabularClassifier:
                     self.training_data = TabularDatasets.normalize_unicode(self.training_data, column, normalization)
             if features is not None:
                 self.training_data = TabularDatasets.add_features(self.training_data, features, transformer_embeddings_training)
+            if class_column is not None:
+                self.training_data = self.training_data.astype({class_column: "category"})
         if test_file is not None:
             if test_format == 'tabular':
                 if class_column is not None:
                     self.test_data = pd.read_csv(test_file, sep="\t", header=0, encoding="utf-8", quoting=3)
                 else:
-                    self.test_data = pd.read_csv(test_file, sep="\t", header=0, encoding="utf-8", quoting=3, dtype={class_column:'category'})
+                    self.test_data = pd.read_csv(test_file, sep="\t", header=0, encoding="utf-8", quoting=3)
             if normalize_columns is not None:
                 for column in normalize_columns:
                     self.test_data = TabularDatasets.normalize_unicode(self.test_data, column, normalization)
             if features is not None:
                 self.test_data = TabularDatasets.add_features(self.test_data, features, transformer_embeddings_test)
+            if class_column is not None:
+                self.test_data = self.test_data.astype({class_column: "category"})
