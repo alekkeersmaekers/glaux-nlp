@@ -54,7 +54,7 @@ def add_capital_feature(dataset,index_name="FORM"):
     dataset['CAPITAL'] = dataset[index_name].str[0].str.isupper()
     return dataset
 
-def add_gazetteer_feature(dataset,gazetteer_file,gazetteer_name=None,index_name="LEMMA",class_name=None):
+def add_gazetteer_feature(dataset,gazetteer_file,gazetteer_name=None,index_name="LEMMA",class_name=None,fill_nas=None):
     if class_name is None:
         # gazetteer is a simple list
         with open(gazetteer_file) as infile:
@@ -63,7 +63,8 @@ def add_gazetteer_feature(dataset,gazetteer_file,gazetteer_name=None,index_name=
     else:
         gazetteer = pd.read_csv(gazetteer_file, sep="\t", header=0, quoting=3)
         dataset = dataset.merge(gazetteer, on=index_name, how='left')
-        dataset[[class_name]] = dataset[[class_name]].fillna("none")
+        if fill_nas is not None:
+            dataset[[class_name]] = dataset[[class_name]].fillna("none")
         dataset = dataset.astype({class_name: "category"})
     return dataset
 
