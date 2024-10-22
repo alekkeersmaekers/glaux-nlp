@@ -120,7 +120,7 @@ class Tagger:
             print('Predicted ' + feat)
         return all_preds
 
-    def train_models(self, tokens, batch_size=16, epochs=3, learning_rate=5e-5, normalization_rule=None,
+    def train_models(self, tokens, batch_size=16, epochs=3, learning_rate=5e-5, freeze_epochs=0, normalization_rule=None,
                      tokenizer_add_prefix_space=False):
         tokens_norm = tokens
         if normalization_rule is not None:
@@ -159,7 +159,7 @@ class Tagger:
                 feat_classifier.train_classifier(f"{self.model_dir}/{feat}", training_data_feat,
                                                  tag2id=tag2id_all[feat], id2tag=id2tag_all[feat],
                                                  batch_size=batch_size,
-                                                 epochs=epochs,learning_rate=learning_rate)
+                                                 epochs=epochs,learning_rate=learning_rate, freeze_epochs=freeze_epochs)
         else:
             training_data_df = training_data.to_pandas()  # once huggingface implements selecting columns, use datasets directly
             multitask_feat_datasets = []
@@ -190,7 +190,7 @@ class Tagger:
             feat_classifier.tasks = self.tasks
             feat_classifier.train_classifier(f"{self.model_dir}", multitask_feat_data,
                                              tag2id=tag2id_all, id2tag=id2tag_all, batch_size=batch_size,
-                                             epochs=epochs,learning_rate=learning_rate)
+                                             epochs=epochs,learning_rate=learning_rate, freeze_epochs=freeze_epochs)
 
     def build_feature_dict(self):
         # Builds a dictionary with all tagging features and their possible values, based on the training data or the
@@ -610,6 +610,8 @@ if __name__ == '__main__':
                                  'greek_glaux and standard NFD/NFKD/NFC/NFKC')
     arg_parser.add_argument('--epochs', help='number of epochs for training, defaults to 3',
                             type=int, default=3)
+    arg_parser.add_argument('--freeze_epochs', help='number of frozen epochs for training, defaults to 0',
+                            type=int, default=0)
     arg_parser.add_argument('--learning_rate',help='learning rate for training, defaults to 5e-5',type=float,default=5e-5)
     arg_parser.add_argument('--batch_size', help='batch size for training/testing, defaults to 16',
                             type=int, default=16)
@@ -637,7 +639,7 @@ if __name__ == '__main__':
                             data_preset=args.data_preset, is_multitask=args.is_multitask,feature_cols=feature_cols, add_training_data_to_possible_tags=args.add_td_to_possible_tags)
             tokens = tagger.reader.read_tokens(data=tagger.training_data, return_wids=False,
                                              return_tags=False)
-            tagger.train_models(tokens, batch_size=args.batch_size, epochs=args.epochs, learning_rate=args.learning_rate,
+            tagger.train_models(tokens, batch_size=args.batch_size, epochs=args.epochs, learning_rate=args.learning_rate, freeze_epochs=args.freeze_epochs,
                                 normalization_rule=args.normalization_rule,
                                 tokenizer_add_prefix_space=args.tokenizer_add_prefix_space)
     elif args.mode == 'test':

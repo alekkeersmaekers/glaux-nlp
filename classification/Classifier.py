@@ -120,16 +120,47 @@ class Classifier:
         sentence['labels'] = enc_labels
         return sentence
         
-    def train_classifier(self,output_model,train_dataset,tag2id,id2tag,epochs=3,batch_size=16,learning_rate=5e-5):        
+    def train_classifier(self,output_model,train_dataset,tag2id,id2tag,epochs=3,batch_size=16,learning_rate=5e-5, freeze_epochs=0):
         data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer)        
         self.config = AutoConfig.from_pretrained(self.transformer_path, num_labels=len(tag2id), id2label=id2tag, label2id=tag2id)
         self.classifier_model = AutoModelForTokenClassification.from_pretrained(self.transformer_path,config=self.config)
         # Fixes a bug with new version of transformers library
-        for param in self.classifier_model.parameters(): param.data = param.data.contiguous()
+        for param in self.classifier_model.parameters():
+            param.data = param.data.contiguous()
         training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,learning_rate=learning_rate,save_strategy='no')
-        trainer = Trainer(model=self.classifier_model,args=training_args,train_dataset=train_dataset,tokenizer=self.tokenizer,data_collator=data_collator)
-        trainer.train()
-        trainer.model.save_pretrained(save_directory=trainer.args.output_dir)
+
+        # "Frozen" part
+        if freeze_epochs > 0:
+            for param in self.classifier_model.base_model.parameters():
+                param.requires_grad = False # freezing
+
+            frozen_trainer = Trainer(
+                model=self.classifier_model,
+                args=training_args,
+                train_dataset=train_dataset,
+                tokenizer=self.tokenizer,
+                data_collator=data_collator
+            )
+            frozen_trainer.train(num_train_epochs=freeze_epochs)
+
+        # "Unfrozen" part
+        if freeze_epochs < epochs: # freeze_epochs is a subset of epochs, the total number of epochs
+            # Unfreezing
+            for param in self.classifier_model.base_model.parameters():
+                param.requires_grad = True
+            # Calculate remaining epochs
+            remaining_epochs = epochs - freeze_epochs
+
+            unfrozen_trainer = Trainer(
+                model=self.classifier_model,
+                args=training_args,
+                train_dataset=train_dataset,
+                tokenizer=self.tokenizer,
+                data_collator=data_collator,
+            )
+            unfrozen_trainer.train(num_train_epochs=remaining_epochs)
+
+        self.classifier_model.save_pretrained(save_directory=training_args.output_dir)
             
     def predict(self,test_data,model_dir=None,batch_size=16,labelname='MISC'):        
         ##Only works when padding is set to the right!!! See below
@@ -250,7 +281,7 @@ class MultitaskClassifier(Classifier):
                          unknown_label, data_preset, feature_cols, tokenizer_add_prefix_space)
 
     def train_classifier(self, output_model, train_dataset, tag2id, id2tag, epochs=5, batch_size=16,
-                         learning_rate=2e-5):
+                         learning_rate=2e-5, freeze_epochs=0):
 
         self.config = AutoConfig.from_pretrained(self.transformer_path)
         self.multi_task_model = MultiTaskModel(self.transformer_path, self.tasks)
@@ -261,6 +292,51 @@ class MultitaskClassifier(Classifier):
 
         data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer,
                                                            pad_to_multiple_of=8 if training_args.fp16 else None)
+
+        # "Frozen" part
+        if freeze_epochs > 0:
+            for param in self.multi_task_model.base_model.parameters():
+                param.requires_grad = False  # freezing
+
+            frozen_trainer = Trainer(
+                model=self.multi_task_model,
+                args=training_args,
+                train_dataset=train_dataset,
+                compute_metrics=compute_metrics,
+                tokenizer=self.tokenizer,
+                data_collator=data_collator
+            )
+            frozen_train_result = frozen_trainer.train(num_train_epochs=freeze_epochs)
+            frozen_metrics = frozen_train_result.metrics
+
+            frozen_trainer.log_metrics("train_frozen", frozen_metrics)
+            frozen_trainer.save_metrics("train_frozen", frozen_metrics)
+
+        # "Unfrozen" part
+        if freeze_epochs < epochs: # freeze_epochs is a subset of epochs, the total number of epochs
+            # Unfreezing
+            for param in self.multi_task_model.base_model.parameters():
+                param.requires_grad = True
+            # Calculate remaining epochs
+            remaining_epochs = epochs - freeze_epochs
+
+            unfrozen_trainer = Trainer(
+                model=self.multi_task_model,
+                args=training_args,
+                train_dataset=train_dataset,
+                compute_metrics=compute_metrics,
+                tokenizer=self.tokenizer,
+                data_collator=data_collator,
+            )
+            unfrozen_train_result = unfrozen_trainer.train(num_train_epochs=remaining_epochs)
+            unfrozen_metrics = unfrozen_train_result.metrics
+
+            unfrozen_trainer.log_metrics("train_unfrozen", unfrozen_metrics)
+            unfrozen_trainer.save_metrics("train_unfrozen", unfrozen_metrics)
+
+
+        self.multi_task_model.save_pretrained(save_directory=training_args.output_dir)
+
 
         trainer = Trainer(model=self.multi_task_model, args=training_args, train_dataset=train_dataset,
                           compute_metrics=compute_metrics, tokenizer=self.tokenizer, data_collator=data_collator)
@@ -358,7 +434,7 @@ if __name__ == '__main__':
             training_data = Datasets.build_dataset(tokens_norm,tag_dict)
             training_data = training_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":classifier.tokenizer})
             training_data = training_data.map(classifier.align_labels,fn_kwargs={"tag2id":tag2id})
-            classifier.train_classifier(classifier.model_dir,training_data,tag2id=tag2id,id2tag=id2tag,epochs=args.epochs,batch_size=args.batch_size,learning_rate=args.learning_rate)
+            classifier.train_classifier(classifier.model_dir,training_data,tag2id=tag2id,id2tag=id2tag,epochs=args.epochs,batch_size=args.batch_size,learning_rate=args.learning_rate, freeze_epochs=args.freeze_epochs)
     elif args.mode == 'test':
         if args.test_data == None:
             print('Test data is missing')
