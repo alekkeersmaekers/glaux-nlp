@@ -1,5 +1,6 @@
 import pandas as pd
 import unicodedata as ud
+from sklearn import preprocessing
 
 def add_features(dataset,features,transformer_embeddings=None):
     for feature in features:
@@ -17,9 +18,11 @@ def add_features(dataset,features,transformer_embeddings=None):
                 dataset = add_gazetteer_feature(dataset,**feature[1])
     return dataset
 
-def add_static_embedding(dataset,vector_file,index_name="LEMMA",feature_name=None,fill_nas=None,header=0):
+def add_static_embedding(dataset,vector_file,index_name="LEMMA",feature_name=None,fill_nas=None,header=0,normalize=False):
     if index_name in dataset:
         vectors = pd.read_csv(vector_file, sep="\t", index_col=0, header=header, quoting=3)
+        if normalize:
+            vectors = pd.DataFrame(preprocessing.normalize(vectors),index=vectors.index,columns=vectors.columns)
         if feature_name is not None:
             columns = [f'{feature_name}{i}' for i in range(1,vectors.shape[1]+1)]
             vectors.columns = columns
@@ -32,8 +35,10 @@ def add_static_embedding(dataset,vector_file,index_name="LEMMA",feature_name=Non
         print('Column name '+index_name+' does not exist in your dataset. Please make sure it is present.')
         return dataset
 
-def add_transformer_embedding(dataset,transformer_embeddings,index_name="ID",feature_name=None):
+def add_transformer_embedding(dataset,transformer_embeddings,index_name="ID",feature_name=None,normalize=False):
     transformer_dataframe = pd.DataFrame.from_dict(transformer_embeddings,orient='index')
+    if normalize:
+        transformer_dataframe = pd.DataFrame(preprocessing.normalize(transformer_dataframe),index=transformer_dataframe.index,columns=transformer_dataframe.columns)
     if index_name in dataset:
         if feature_name is not None:
             columns = [f'{feature_name}{i}' for i in range(1,transformer_dataframe.shape[1]+1)]
@@ -49,7 +54,7 @@ def add_capital_feature(dataset,index_name="FORM"):
     dataset['CAPITAL'] = dataset[index_name].str[0].str.isupper()
     return dataset
 
-def add_gazetteer_feature(dataset,gazetteer_file,gazetteer_name=None,index_name="LEMMA",class_name=None):
+def add_gazetteer_feature(dataset,gazetteer_file,gazetteer_name=None,index_name="LEMMA",class_name=None,fill_nas=None):
     if class_name is None:
         # gazetteer is a simple list
         with open(gazetteer_file) as infile:
@@ -58,7 +63,8 @@ def add_gazetteer_feature(dataset,gazetteer_file,gazetteer_name=None,index_name=
     else:
         gazetteer = pd.read_csv(gazetteer_file, sep="\t", header=0, quoting=3)
         dataset = dataset.merge(gazetteer, on=index_name, how='left')
-        dataset[[class_name]] = dataset[[class_name]].fillna("none")
+        if fill_nas is not None:
+            dataset[[class_name]] = dataset[[class_name]].fillna("none")
         dataset = dataset.astype({class_name: "category"})
     return dataset
 
