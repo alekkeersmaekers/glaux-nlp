@@ -134,14 +134,15 @@ class Classifier:
             for param in self.classifier_model.base_model.parameters():
                 param.requires_grad = False # freezing
 
+            training_args.num_train_epochs = freeze_epochs
             frozen_trainer = Trainer(
                 model=self.classifier_model,
                 args=training_args,
                 train_dataset=train_dataset,
                 tokenizer=self.tokenizer,
-                data_collator=data_collator
+                data_collator=data_collator,
             )
-            frozen_trainer.train(num_train_epochs=freeze_epochs)
+            frozen_trainer.train()
 
         # "Unfrozen" part
         if freeze_epochs < epochs: # freeze_epochs is a subset of epochs, the total number of epochs
@@ -151,14 +152,16 @@ class Classifier:
             # Calculate remaining epochs
             remaining_epochs = epochs - freeze_epochs
 
+            training_args.num_train_epochs = remaining_epochs
             unfrozen_trainer = Trainer(
                 model=self.classifier_model,
                 args=training_args,
                 train_dataset=train_dataset,
                 tokenizer=self.tokenizer,
                 data_collator=data_collator,
+                num_train_epochs=remaining_epochs
             )
-            unfrozen_trainer.train(num_train_epochs=remaining_epochs)
+            unfrozen_trainer.train()
 
         self.classifier_model.save_pretrained(save_directory=training_args.output_dir)
             
@@ -285,28 +288,26 @@ class MultitaskClassifier(Classifier):
 
         self.config = AutoConfig.from_pretrained(self.transformer_path)
         self.multi_task_model = MultiTaskModel(self.transformer_path, self.tasks)
-        training_args = TrainingArguments(output_dir=output_model, num_train_epochs=epochs,
-                                          per_device_train_batch_size=batch_size, learning_rate=learning_rate,
-                                          save_safetensors=False,
-                                          save_steps=10000)
 
+        training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,learning_rate=learning_rate,save_strategy='no')
         data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer,
                                                            pad_to_multiple_of=8 if training_args.fp16 else None)
 
         # "Frozen" part
         if freeze_epochs > 0:
-            for param in self.multi_task_model.base_model.parameters():
+            for param in self.multi_task_model.encoder.parameters():
                 param.requires_grad = False  # freezing
 
+            training_args.num_train_epochs = freeze_epochs
             frozen_trainer = Trainer(
                 model=self.multi_task_model,
                 args=training_args,
                 train_dataset=train_dataset,
                 compute_metrics=compute_metrics,
                 tokenizer=self.tokenizer,
-                data_collator=data_collator
+                data_collator=data_collator,
             )
-            frozen_train_result = frozen_trainer.train(num_train_epochs=freeze_epochs)
+            frozen_train_result = frozen_trainer.train()
             frozen_metrics = frozen_train_result.metrics
 
             frozen_trainer.log_metrics("train_frozen", frozen_metrics)
@@ -315,11 +316,12 @@ class MultitaskClassifier(Classifier):
         # "Unfrozen" part
         if freeze_epochs < epochs: # freeze_epochs is a subset of epochs, the total number of epochs
             # Unfreezing
-            for param in self.multi_task_model.base_model.parameters():
+            for param in self.multi_task_model.encoder.parameters():
                 param.requires_grad = True
             # Calculate remaining epochs
             remaining_epochs = epochs - freeze_epochs
 
+            training_args.num_train_epochs = remaining_epochs
             unfrozen_trainer = Trainer(
                 model=self.multi_task_model,
                 args=training_args,
@@ -327,8 +329,9 @@ class MultitaskClassifier(Classifier):
                 compute_metrics=compute_metrics,
                 tokenizer=self.tokenizer,
                 data_collator=data_collator,
+                num_train_epochs=remaining_epochs
             )
-            unfrozen_train_result = unfrozen_trainer.train(num_train_epochs=remaining_epochs)
+            unfrozen_train_result = unfrozen_trainer.train()
             unfrozen_metrics = unfrozen_train_result.metrics
 
             unfrozen_trainer.log_metrics("train_unfrozen", unfrozen_metrics)
