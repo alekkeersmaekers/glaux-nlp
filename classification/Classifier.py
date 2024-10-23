@@ -159,7 +159,6 @@ class Classifier:
                 train_dataset=train_dataset,
                 tokenizer=self.tokenizer,
                 data_collator=data_collator,
-                num_train_epochs=remaining_epochs
             )
             unfrozen_trainer.train()
 
