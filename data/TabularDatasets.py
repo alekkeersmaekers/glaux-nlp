@@ -2,13 +2,12 @@ import pandas as pd
 import unicodedata as ud
 from sklearn import preprocessing
 
-def add_features(dataset,features,transformer_embeddings=None):
+def add_features(dataset,features):
     for feature in features:
             if feature[0] == 'static_embedding':
                 dataset = add_static_embedding(dataset,**feature[1])
             elif feature[0] == 'transformer_embedding':
-                if transformer_embeddings is not None:
-                    dataset = add_transformer_embedding(dataset,transformer_embeddings,**feature[1])
+                dataset = add_transformer_embedding(dataset,**feature[1])
             elif feature[0] == 'capital':
                 if len(feature) == 2:
                     dataset = add_capital_feature(dataset,**feature[1])
@@ -54,7 +53,7 @@ def add_capital_feature(dataset,index_name="FORM"):
     dataset['CAPITAL'] = dataset[index_name].str[0].str.isupper()
     return dataset
 
-def add_gazetteer_feature(dataset,gazetteer_file,gazetteer_name=None,index_name="LEMMA",class_name=None,fill_nas=None):
+def add_gazetteer_feature(dataset,gazetteer_file,gazetteer_name=None,index_name="LEMMA",class_name=None,fill_nas=None,one_hot_encoding=False):
     if class_name is None:
         # gazetteer is a simple list
         with open(gazetteer_file) as infile:
@@ -66,6 +65,9 @@ def add_gazetteer_feature(dataset,gazetteer_file,gazetteer_name=None,index_name=
         if fill_nas is not None:
             dataset[[class_name]] = dataset[[class_name]].fillna("none")
         dataset = dataset.astype({class_name: "category"})
+        if one_hot_encoding:
+            dataset = pd.concat([dataset,pd.get_dummies(dataset[class_name])],axis=1)
+            dataset.drop(columns=[class_name],inplace=True)
     return dataset
 
 def normalize_unicode(dataset,column_name,normalization='NFC'):

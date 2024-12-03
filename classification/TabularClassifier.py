@@ -5,10 +5,11 @@ import xgboost as xgb
 import shap
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.neural_network import MLPClassifier
 
 class TabularClassifier:
     
-    def __init__(self, features=None, td_file=None, td_format='tabular', test_file=None, test_format='tabular', transformer_embeddings_training=None, transformer_embeddings_test=None, normalize_columns=None, normalization='NFC', class_column=None, train_gpu=False):
+    def __init__(self, features=None, td_file=None, td_format='tabular', test_file=None, test_format='tabular', normalize_columns=None, normalization='NFC', class_column=None, train_gpu=False):
         if td_file is not None:
             if td_format == 'tabular':
                 self.training_data = pd.read_csv(td_file, sep="\t", header=0, encoding="utf-8", quoting=3)
@@ -16,7 +17,7 @@ class TabularClassifier:
                 for column in normalize_columns:
                     self.training_data = TabularDatasets.normalize_unicode(self.training_data, column, normalization)
             if features is not None:
-                self.training_data = TabularDatasets.add_features(self.training_data, features, transformer_embeddings_training)
+                self.training_data = TabularDatasets.add_features(self.training_data, features)
             if class_column is not None:
                 self.class_name = class_column
                 self.training_data = self.training_data.astype({class_column: "category"})
@@ -27,11 +28,59 @@ class TabularClassifier:
                 for column in normalize_columns:
                     self.test_data = TabularDatasets.normalize_unicode(self.test_data, column, normalization)
             if features is not None:
-                self.test_data = TabularDatasets.add_features(self.test_data, features, transformer_embeddings_test)
+                self.test_data = TabularDatasets.add_features(self.test_data, features)
             if class_column is not None:
                 self.class_name = class_column
                 self.test_data = self.test_data.astype({class_column: "category"})
         self.train_gpu = train_gpu
+    
+    def train(self,ignore_columns=None,shuffle_data=True,random_state=None,model_type='xgboost',model_params=None,xgboost_trees=10):
+        if model_type == 'xgboost':
+            if model_params is None:
+                model_params = {}
+                model_params['objective'] = 'multi:softmax'
+                model_params['tree_method'] = 'hist'
+            if random_state is not None:
+                model_params['random_state'] = random_state
+            if self.train_gpu:
+                model_params['device'] = 'cuda'
+        if shuffle_data:
+            if random_state is None:
+                self.training_data = self.training_data.sample(frac=1)
+            else:
+                self.training_data = self.training_data.sample(frac=1,random_state=random_state)
+        print(f'Training classifier')
+        train = self.training_data.copy()
+        label = train[self.class_name].cat.codes
+        label_encoder = train[self.class_name].cat.categories
+        if ignore_columns is not None:
+            train.drop(columns=ignore_columns,inplace=True)
+        train.drop(columns=[self.class_name],inplace=True)
+        if model_type == 'xgboost':
+            if model_params['objective'] in ['multi:softmax','multi:softprob']:
+                model_params['num_class'] = len(label_encoder)
+            train_matrix = xgb.DMatrix(data=train,label=label,enable_categorical=True)
+            model = xgb.train(model_params,train_matrix,num_boost_round=xgboost_trees)
+            if self.test_data is not None:
+                test = self.test_data.copy()
+                if ignore_columns is not None:
+                    test.drop(columns=ignore_columns,inplace=True)
+                test.drop(columns=[self.class_name],inplace=True)
+                test_matrix = xgb.DMatrix(data=test,enable_categorical=True)
+                predictions = model.predict(test_matrix)
+        elif model_type == 'mlp':
+            model = MLPClassifier(random_state=random_state,**model_params).fit(train,label)
+            if self.test_data is not None:
+                test = self.test_data.copy()
+                if ignore_columns is not None:
+                    test.drop(columns=ignore_columns,inplace=True)
+                test.drop(columns=[self.class_name],inplace=True)
+                predictions = model.predict(test)
+        if self.test_data is not None:
+            self.set_predictions(label_encoder[predictions.astype(int)])
+            print(f'Accuracy: {self.get_accuracy(self.test_data)}')
+        self.models = [model]
+        self.label_encoders = [label_encoder]
 
     def train_and_test_nfold(self,ignore_columns=None,n=10,stratified=True,shuffle_data=True,random_state=None,model_type='xgboost',model_params=None,xgboost_trees=10):
         if model_type == 'xgboost':
@@ -75,10 +124,13 @@ class TabularClassifier:
                 model = xgb.train(model_params,train_matrix,num_boost_round=xgboost_trees)
                 test_matrix = xgb.DMatrix(data=test,enable_categorical=True)
                 predictions = model.predict(test_matrix)
-                all_predictions.extend(label_encoder[predictions.astype(int)])
-                models.append(model)
-                test_folds.append(test)
-                label_encoders.append(label_encoder)
+            elif model_type == 'mlp':
+                model = MLPClassifier(random_state=random_state,**model_params).fit(train,label)
+                predictions = model.predict(test)
+            all_predictions.extend(label_encoder[predictions.astype(int)])
+            models.append(model)
+            test_folds.append(test)
+            label_encoders.append(label_encoder)
         self.models = models
         self.test_folds = test_folds
         self.label_encoders = label_encoders
@@ -94,6 +146,13 @@ class TabularClassifier:
             for token_no, token in enumerate(fold_index):
                 self.row_fold[token] = fold_no
                 self.row_index[token] = token_no
+    
+    def set_predictions(self,predictions):
+        self.predictions = {}
+        index = -1
+        for token in self.test_data.index:
+            index +=1
+            self.predictions[token] = predictions[index]
     
     def set_predictions_nfold(self,predictions):
         self.predictions = {}

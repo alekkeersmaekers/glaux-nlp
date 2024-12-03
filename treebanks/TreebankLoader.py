@@ -114,7 +114,8 @@ class TreebankLoader():
                                 word['morph'] = perseus_to_feats(val, word['wordid'])
                             elif name == self.wordid:
                                 word['wordid'] = val
-                                previousid = word['wordid']
+                                if self.wordid == 'id':
+                                    word['id'] = val
                             else:
                                 word[name] = val
                     if (self.token_attr is None or 'head' in self.token_attr) and 'headid' in word:

@@ -1,5 +1,20 @@
 import unicodedata as ud
 
+def nonCoordinateHead(node,tree):
+    if node['head'] is not None:
+        if node['head']['relation'] == 'COORD':
+            if node['relation'].endswith('_CO') or node['relation'] == 'COORD' or node['relation'] == 'AuxY':
+                return nonCoordinateHead(node['head'],tree)
+            else:
+                for c in children(node['head'],tree):
+                    if c['relation'].endswith('_CO'):
+                        return c
+                return nonCoordinateHead(node['head'],tree)
+        else:
+            return node['head']
+    else:
+        return None
+
 def highestCoordinateUD(node,conjunct_relation='CO'):
     if node['head'] is None:
         return None
