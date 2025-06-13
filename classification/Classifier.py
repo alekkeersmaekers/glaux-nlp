@@ -447,7 +447,7 @@ if __name__ == '__main__':
             tokens_norm = tokens
             if args.normalization_rule is not None:
                 tokens_norm = Tokenization.normalize_tokens(tokens, args.normalization_rule)
-            test_data = Datasets.build_dataset(tokens,tags_dict)
+            test_data = Datasets.build_dataset(tokens_norm,tags_dict)
             test_data = test_data.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":classifier.tokenizer})
             prediction = classifier.predict(test_data,model_dir=classifier.model_dir,batch_size=args.batch_size)
             if args.output_file is not None:

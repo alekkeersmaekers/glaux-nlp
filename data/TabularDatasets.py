@@ -56,7 +56,7 @@ def add_capital_feature(dataset,index_name="FORM"):
 def add_gazetteer_feature(dataset,gazetteer_file,gazetteer_name=None,index_name="LEMMA",class_name=None,fill_nas=None,one_hot_encoding=False):
     if class_name is None:
         # gazetteer is a simple list
-        with open(gazetteer_file) as infile:
+        with open(gazetteer_file,encoding='utf8') as infile:
             gazetteer = infile.read().strip().split('\n')
             dataset[gazetteer_name] = dataset[index_name].isin(gazetteer)
     else:

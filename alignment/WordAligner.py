@@ -31,7 +31,7 @@ class WordAligner:
     
     def build_lexicon(self,lexicon_file):
         lexicon = {}
-        with open(lexicon_file,'r') as infile:
+        with open(lexicon_file,'r',encoding='utf8') as infile:
             lines = infile.readlines()
             for line in lines:
                 sl = line.strip().split('\t')
@@ -121,7 +121,7 @@ class WordAligner:
         for sent in sentences.values():
             lemmas = sent['lemmatized']
             lemma_data.append(lemmas)
-        phrase_model = Phrases(lemma_data, connector_words=ENGLISH_CONNECTOR_WORDS,scoring='npmi',threshold=0.3)
+        phrase_model = Phrases(lemma_data, connector_words=ENGLISH_CONNECTOR_WORDS,scoring='npmi',threshold=0.2)
         phrase_model = phrase_model.freeze()
         return phrase_model
     
@@ -177,10 +177,26 @@ class WordAligner:
             currentSent = sent
         self.add_counts(grc_lemmas,en_lemmas)
     
+    def get_sent_list_freqs(self,lemmas,sentences):
+        for sent_no, sent in tqdm(enumerate(sentences),desc='Counting frequencies',total=len(sentences)):
+            lemmatized_sentence = sent['lemmatized']
+            mwe_tokenized = sent['mwe_tokenized']
+            phrase_tokenized = sent['phrase_tokenized']
+            grc_lemma_sent = lemmas[sent_no]
+            grc_lemmas = set(grc_lemma_sent)
+            en_lemmas = set(lemmatized_sentence)
+            for lemma in mwe_tokenized:
+                if '_' in lemma:
+                    en_lemmas.add(lemma)
+            for lemma in phrase_tokenized:
+                if '_' in lemma:
+                    en_lemmas.add(lemma)
+            self.add_counts(grc_lemmas,en_lemmas)
+    
     def get_file_freqs(self,file,greek_lemma_list,sentences):
         lemma_count = -1
         sent_id = 0
-        with open(file) as infile:
+        with open(file,encoding='utf8') as infile:
             lines = infile.readlines()
             for line in tqdm(lines,desc='Counting frequencies'):
                 sl = line.strip().split('\t')
@@ -371,7 +387,7 @@ class WordAligner:
         groups = []
         lemma_index = -1
         group_index = 0
-        with open(file,'r') as infile:
+        with open(file,'r',encoding='utf8') as infile:
             lines = infile.readlines()
             for line in tqdm(lines,desc='Creating alignment dataset'):
                 sl = line.strip().split('\t')
@@ -500,9 +516,11 @@ class WordAligner:
     def get_group_size(self,data):
         return data.reset_index().groupby("GROUP")['GROUP'].count()
     
-    def train_model(self,data,train_test_split,train_size=0.9):
+    def train_model(self,data,train_test_split,train_size=0.9,seed=None):
         groups = list(set(data['GROUP']))
         if train_test_split:
+            if seed is not None:
+                random.seed(seed)
             random.shuffle(groups)
             train_no = round(train_size*len(groups))
             train_indices = groups[0:train_no]
@@ -511,8 +529,9 @@ class WordAligner:
             test_instances = data[data['GROUP'].isin(test_indices)].copy()
             train_groups = self.get_group_size(train_instances)
         else:
+            train_instances = data.copy()
             train_groups = self.get_group_size(data)
-        model = LGBMRanker(objective="lambdarank",n_estimators=500)
+        model = LGBMRanker(objective="lambdarank",n_estimators=500,random_state=seed)
         model.fit(train_instances.drop(columns=['GROUP','GRC','EN','INDICES','ALIGNED']),train_instances['ALIGNED'],group=train_groups)
         if train_test_split:
             test_instances = self.make_predictions(model,test_instances)

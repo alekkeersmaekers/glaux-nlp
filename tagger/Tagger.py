@@ -17,7 +17,7 @@ import json
 class Tagger:
 
     def __init__(self, transformer_path, model_dir, tokenizer_path=None, training_data=None, test_data=None,
-                 lexicon_file=None, possible_tags_file=None, data_preset='CONLLU', feature_cols=None, feats=['UPOS', 'XPOS', 'FEATS'],
+                 lexicon_file=None, lexicon_dict=None, possible_tags_file=None, data_preset='CONLLU', feature_cols=None, feats=['UPOS', 'XPOS', 'FEATS'],
                  unknown_label=None, add_training_data_to_possible_tags=True, add_training_data_to_lexicon=True,
                  normalization_rule=None, is_multitask=False):
         self.reader = CONLLReader(data_preset,feature_cols)
@@ -37,11 +37,15 @@ class Tagger:
         else:
             self.test_data = None
         self.feature_dict = self.build_feature_dict()
-        if lexicon_file is not None:
-            self.lexicon = self.read_lexicon(lexicon_file,normalization_rule)
-            self.trim_lexicon()
+        if lexicon_file is not None or lexicon_dict is not None:
+            if lexicon_file is not None:
+                self.lexicon = self.read_lexicon(lexicon_file,normalization_rule)
+            else:
+                self.lexicon = lexicon_dict
+            lp = LexiconProcessor(self.lexicon)
+            lp.trim_lexicon(self.feature_dict)
+            self.lexicon = lp.lexicon
             if add_training_data_to_lexicon and self.training_data is not None:
-                lp = LexiconProcessor(self.lexicon)
                 lp.add_data(self.training_data, feats=self.feature_dict, col_token=self.reader.feature_cols['FORM'],
                             col_upos=self.reader.feature_cols['UPOS'], col_xpos=self.reader.feature_cols['XPOS'],
                             col_morph=self.reader.feature_cols['FEATS'], normalization_rule=normalization_rule,
@@ -68,7 +72,7 @@ class Tagger:
 
         return (feat, preds)
 
-    def tag_seperately(self, tokens, batch_size=16, tokenizer_add_prefix_space=False):
+    def tag_seperately(self, tokens, batch_size=16, tokenizer_add_prefix_space=False, print_prediction=True):
         tag_dict = {}
         for feat in self.feature_dict:
             tags = []
@@ -117,7 +121,8 @@ class Tagger:
 
             result = self.tag_individual_feat(feat, test_data, batch_size=batch_size)
             all_preds[result[0]] = result[1]
-            print('Predicted ' + feat)
+            if print_prediction:
+                print('Predicted ' + feat)
         return all_preds
 
     def train_models(self, tokens, batch_size=16, epochs=3, learning_rate=5e-5, freeze_epochs=0, normalization_rule=None,
@@ -245,7 +250,7 @@ class Tagger:
         elif self.model_dir is not None:
             for file in os.listdir(self.model_dir):
                 path = os.path.join(self.model_dir, file)
-                if os.path.isdir(path):
+                if os.path.isdir(path) and 'config.json' in os.listdir(path) and (('FEATS' in self.feats and file != 'UPOS' and file != 'XPOS') or file in self.feats):
                     config = AutoConfig.from_pretrained(path)
                     feature_dict[file] = set(config.label2id.keys())
         return feature_dict
@@ -324,12 +329,12 @@ class Tagger:
         tag_probs = sorted(tag_probs.items(), reverse=True, key=lambda x: x[1])
         return tag_probs
 
-    def tag_data(self, tokens, preds, return_all_probs=False, return_num_poss=False):
+    def tag_data(self, tokens, preds, return_all_probs=False, return_num_poss=False, disable_progress_bar=False):
         best_tags = []
         all_tags = []
         num_poss = []
         word_no = -1
-        for sent in tqdm(tokens, desc="Combining predicted tags"):
+        for sent in tqdm(tokens, desc="Combining predicted tags", disable=disable_progress_bar):
             for word in sent:
                 word_no += 1
                 possible_tags = self.possible_tags
@@ -380,10 +385,10 @@ class Tagger:
             if output_format == 'tab':
                 outfile.write("id\ttoken\tprobability\tpossibilities\tin_lexicon")
                 for feat in self.feature_dict:
-                    outfile.write("\t" + feat)
+                    outfile.write(f"\t{feat}")
                 if output_gold:
                     for feat in self.feature_dict:
-                        outfile.write("\tgold_" + feat)
+                        outfile.write(f"\tgold_{feat}")
                 if output_sentence:
                     outfile.write("\tsentence")
                 outfile.write('\n')
@@ -409,24 +414,21 @@ class Tagger:
                             morph = '_'
                         else:
                             morph = morph[:-1]
-                        outfile.write(
-                            wid + "\t" + word + "\t_\t" + upos + "\t" + xpos + "\t" + morph + "\t_\t_\t_\t_\n")
+                        outfile.write(f"{wid}\t{word}\t_\t{upos}\t{xpos}\t{morph}\t_\t_\t_\t_\n")
                     elif output_format == 'tab':
                         if self.lexicon is not None:
                             word_norm = tokens_norm[sent_id][word_id]
-                            outfile.write(wid + "\t" + word + f"\t{top_prediction[1]:.5f}\t" + str(
-                                num_poss[word_no]) + "\t" + str(word_norm in self.lexicon))
+                            outfile.write(f"{wid}\t{word}\t{top_prediction[1]:.5f}\t{num_poss[word_no]}\t{word_norm in self.lexicon}")
                         else:
-                            outfile.write(
-                                wid + "\t" + word + f"\t{top_prediction[1]:.5f}\t" + str(num_poss[word_no]) + "\tNA")
+                            outfile.write(f"{wid}\t{word}\t{top_prediction[1]:.5f}\t{num_poss[word_no]}\tNA")
                         for feat in self.feature_dict:
                             val = '_'
                             if feat in tag:
                                 val = tag[feat]
-                            outfile.write("\t" + val)
+                            outfile.write(f"\t{val}")
                         if output_gold:
                             for feat in self.feature_dict:
-                                outfile.write('\t' + tags_gold[feat][sent_id][word_id])
+                                outfile.write(f'\t{tags_gold[feat][sent_id][word_id]}')
                         if output_sentence:
                             sent_str = ''
                             for word_id_2, word_2 in enumerate(sent):
@@ -436,7 +438,7 @@ class Tagger:
                                 if word_id_2 == word_id:
                                     sent_str += ']'
                                 sent_str += ' '
-                            outfile.write('\t' + sent_str.strip())
+                            outfile.write(f'\t{sent_str.strip()}')
                         outfile.write('\n')
                 if output_format == 'CONLLU':
                     outfile.write('\n')

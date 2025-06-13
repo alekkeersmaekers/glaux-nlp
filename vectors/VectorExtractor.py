@@ -8,6 +8,12 @@ from data import Datasets
 
 class VectorExtractor:
 
+    def process_sentence(self,sentence):
+        sentence.update(Tokenization.tokenize_sentence(sentence,tokenizer=self.tokenizer,return_tensors='pt'))
+        sentence = self.align_wids_subwords(sentence)
+        sentence = self.get_embeddings(sentence,self.model)
+        return sentence
+    
     def align_wids_subwords(self,sentence):
         wids = sentence['wids']
         subword_ids = sentence['subword_ids']
@@ -27,20 +33,17 @@ class VectorExtractor:
     
     def get_embeddings(self,sentence,model):
         with torch.no_grad():
-            if 'token_type_ids' in sentence:
-                output = model(input_ids=sentence['input_ids'],token_type_ids=sentence['token_type_ids'],attention_mask=sentence['attention_mask'])
-            else:
-                output = model(input_ids=sentence['input_ids'],attention_mask=sentence['attention_mask'])
+            input_ids = sentence['input_ids'].to(model.device)
+            attention_mask = sentence['attention_mask'].to(model.device)
+            token_type_ids = sentence['token_type_ids'].to(model.device) if 'token_type_ids' in sentence else None
+            output = model(input_ids=input_ids,attention_mask=attention_mask,token_type_ids=token_type_ids,output_hidden_states=True)
         states = output.hidden_states
-        embeddings = torch.stack(states).squeeze().permute(1,0,2)
+        embeddings = torch.stack(states)[:, 0, :, :].permute(1,0,2).cpu()
         sentence['embeddings'] = embeddings
         return sentence
     
     def get_vector(self,sentence,wid,layers=[-2],layer_combination_method='sum',subwords_combination_method='mean'):
-        ids = []
-        for no, subword_id in enumerate(sentence['wids_subwords']):
-            if subword_id == wid:
-                ids.append(no)
+        ids = [i for i, subword_id in enumerate(sentence['wids_subwords']) if subword_id == wid]
         vectors = []
         embeddings = sentence['embeddings']
         for i in ids:
@@ -62,28 +65,26 @@ class VectorExtractor:
     def extract_vectors(self,dataset,limit_wids=None,limit_labels=None,exclude_labels=None,label_name='MISC',layers=[-2],layer_combination_method='sum',subwords_combination_method='mean',average_same_id=False):
         vectors = {}
         for sent in dataset:
+            labels = sent[label_name] if (limit_labels or exclude_labels) else None
             for word_no, wid in enumerate(sent['wids']):
-                include = True
-                if limit_wids is not None:
-                    if not wid in limit_wids:
-                        include = False
-                elif limit_labels is not None:
-                    label = sent[label_name][word_no]
-                    if not label in limit_labels:
-                        include = False
-                elif exclude_labels is not None:
-                    label = sent[label_name][word_no]
-                    if label in exclude_labels:
-                        include = False
+                label = labels[word_no] if labels else None
+                include = (
+                    (limit_wids is None or wid in limit_wids) and
+                    (limit_labels is None or label in limit_labels) and
+                    (exclude_labels is None or label not in exclude_labels)
+                )
                 if include:
-                    vector = self.get_vector(sent,wid,layers=layers,layer_combination_method=layer_combination_method,subwords_combination_method=subwords_combination_method)
-                    if not average_same_id:
-                        vectors[wid] = vector
-                    else:
-                        if wid in vectors:
-                            vectors[wid].append(vector)
+                    if wid in sent['wids_subwords']:
+                        vector = self.get_vector(sent,wid,layers=layers,layer_combination_method=layer_combination_method,subwords_combination_method=subwords_combination_method)
+                        if not average_same_id:
+                            vectors[wid] = vector
                         else:
-                            vectors[wid] = [vector]
+                            if wid in vectors:
+                                vectors[wid].append(vector)
+                            else:
+                                vectors[wid] = [vector]
+                    else:
+                        print(f'{wid} is in a sentence larger than the allowed subword limit. It will not be added to the vectors.')
         if not average_same_id:
             return(vectors)
         else:
@@ -103,13 +104,15 @@ class VectorExtractor:
             dataset = Datasets.build_dataset(tokens_norm, {label_name:labels}, wids)
         else:
             dataset = Datasets.build_dataset(tokens_norm, None, wids)
-        dataset = dataset.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":self.tokenizer,"return_tensors":'pt'})
-        dataset = dataset.map(self.align_wids_subwords)
-        if "token_type_ids" in dataset:
-            dataset.set_format("pt", columns=["input_ids","token_type_ids","attention_mask"], output_all_columns=True)
-        else:
-            dataset.set_format("pt", columns=["input_ids","attention_mask"], output_all_columns=True)
-        dataset = dataset.map(self.get_embeddings,fn_kwargs={"model":self.model})
+        #dataset = dataset.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":self.tokenizer,"return_tensors":'pt'})
+        #dataset = dataset.map(self.align_wids_subwords)
+        #if "token_type_ids" in dataset:
+        #    dataset.set_format("pt", columns=["input_ids","token_type_ids","attention_mask"], output_all_columns=True)
+        #else:
+        #    dataset.set_format("pt", columns=["input_ids","attention_mask"], output_all_columns=True)
+        #dataset = dataset.map(self.get_embeddings,fn_kwargs={"model":self.model})
+        dataset = dataset.map(self.process_sentence)
+        dataset.set_format("pt", columns=["embeddings"], output_all_columns=True)
         return dataset
         
     def write_vectors(self,vectors,output_file,ids,tokens=None,labels=None,precision=5):
@@ -136,6 +139,7 @@ class VectorExtractor:
         if data_path is not None:
             self.data = self.reader.parse_conll(data_path)
         self.model = AutoModel.from_pretrained(transformer_path,output_hidden_states=True)
+        self.model = self.model.to("cuda" if torch.cuda.is_available() else "cpu")
         self.model.eval()
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 from subprocess import Popen, PIPE
 import re, os, beta_code, unicodedata
+from tokenization.Tokenization import normalize_token
 
 class MorpheusProcessor:
     
@@ -338,7 +339,7 @@ class MorpheusProcessor:
         elif lemma == 'a)lhqw=s':
             return 'a)lhqh/s'
         elif re.match('.*mimnh/skw',lemma):
-            return re.sub('mimnh/skw','mimnh/\|skw',lemma)
+            return re.sub('mimnh/skw','mimnh/|skw',lemma)
         elif lemma == 'a)nqista/w':
             return 'a)nqi/sthmi'
         elif re.match('.*limpa/nw',lemma):
@@ -354,7 +355,7 @@ class MorpheusProcessor:
         elif form == 'h)/per':
             return 'h)/'
         elif re.match('.*qnh/skw',lemma):
-            return re.sub('qnh/skw','qnh/\|skw',lemma)
+            return re.sub('qnh/skw','qnh/|skw',lemma)
         elif lemma == 'i)/laos':
             return 'i(/laos'
         elif lemma == 'katayeu/dw':
@@ -501,15 +502,23 @@ class MorpheusProcessor:
         f.close()
         return wordclass
     
-    def send_word_list(self,wordlist):
-        p = Popen(["cruncher","-d"], stdout=PIPE,stdin=PIPE)
+    def send_word_list(self,wordlist,normalize_beta=True,unicode_normalization=None,case_sensitive=True):
+        if case_sensitive:
+            p = Popen(["cruncher","-d"], stdout=PIPE,stdin=PIPE)
+        else:
+            p = Popen(["cruncher","-d","-S"], stdout=PIPE,stdin=PIPE)
         command = ''
         for word in wordlist:
+            if normalize_beta:
+                if unicode_normalization is not None:
+                    word = normalize_token(word,unicode_normalization)
+                word = beta_code.greek_to_beta_code(word)
+                word = re.sub('[’᾽]','\'',word)
             command += word + '\n'
         morpheus_output = p.communicate(command.encode('UTF-8'))[0]
         return morpheus_output.decode('UTF-8')
     
-    def convert_morpheus_output(self,morpheus_analysis,poetic):
+    def convert_morpheus_output(self,morpheus_analysis,poetic,print_problems=False):
         lexicon = {}
         lines = morpheus_analysis.split('\n')
         form = ''
@@ -591,8 +600,6 @@ class MorpheusProcessor:
                 if not discardAnalysis:
                     splittedLine = line.split('\t')
                     infl = splittedLine[len(splittedLine)-1]
-                    if len(splittedLine)<2:
-                        print(line)
                     morphology = re.sub('^[ ]+', '',splittedLine[1])
                     wordclass = splittedLine[len(splittedLine)-1]
                     if "," in wordclass:
@@ -706,13 +713,16 @@ class MorpheusProcessor:
                             genders.append('neut')
 
                         if len(genders)==0:
-                            print('No gender: '+form)
+                            if print_problems:
+                                print('No gender: '+form)
                             genders.append('none')
                         if len(cases)==0:
-                            print('No case: '+form+'\t'+morphology)
+                            if print_problems:
+                                print('No case: '+form+'\t'+morphology)
                             cases.append('none')
                         if number == '':
-                            print('No number: '+form+'\t'+morphology)
+                            if print_problems:
+                                print('No number: '+form+'\t'+morphology)
                             number = 'sg'
                         
                         form_uni = self.beta_to_uni(form)
@@ -807,19 +817,24 @@ class MorpheusProcessor:
                             voice='pass'
                         
                         if len(genders)==0:
-                            print('No gender: '+form)
+                            if print_problems:
+                                print('No gender: '+form)
                             genders.append('none')
                         if len(cases)==0:
-                            print('No case: '+form)
+                            if print_problems:
+                                print('No case: '+form)
                             cases.append('none')
                         if number == '':
-                            print('No number: '+form)
+                            if print_problems:
+                                print('No number: '+form)
                             number = 'none'
                         if tense == '':
-                            print('No tense: '+form)
+                            if print_problems:
+                                print('No tense: '+form)
                             tense = 'pres'
                         if voice == '':
-                            print('No voice: '+form)
+                            if print_problems:
+                                print('No voice: '+form)
                             voice = 'act'
                         
                         form_uni = self.beta_to_uni(form)
@@ -876,10 +891,12 @@ class MorpheusProcessor:
                             voice='pass'    
 
                         if tense == '':
-                            print('No tense: '+form)
+                            if print_problems:
+                                print('No tense: '+form)
                             tense = 'pres'
                         if voice == '':
-                            print('No voice: '+form)
+                            if print_problems:
+                                print('No voice: '+form)
                             voice = 'act'
                         
                         form_uni = self.beta_to_uni(form)
@@ -977,19 +994,24 @@ class MorpheusProcessor:
                             number = 'sg'
                         
                         if person == '':
-                            print('No person: '+form)
+                            if print_problems:
+                                print('No person: '+form)
                             person = '3'
                         if number == '':
-                            print('No number: '+form)
+                            if print_problems:
+                                print('No number: '+form)
                             number = 'sg'
                         if tense == '':
-                            print('No tense: '+form)
+                            if print_problems:
+                                print('No tense: '+form)
                             tense = 'pres'
                         if mood == '':
-                            print('No mood: '+form)
+                            if print_problems:
+                                print('No mood: '+form)
                             mood = 'ind'
                         if voice == '':
-                            print('No voice: '+form+'\n')
+                            if print_problems:
+                                print('No voice: '+form+'\n')
                             voice = 'act'
                         
                         form_uni = self.beta_to_uni(form)

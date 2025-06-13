@@ -1,6 +1,15 @@
 import re
 import unicodedata
 
+def check_subword_limit(sentences, tokenizer, max_length=512, check_min_tokens=128):
+    sentence_nos = []
+    for sentence_no, sentence in enumerate(sentences):
+        if len(sentence) >= check_min_tokens:
+            encodings = tokenizer(sentence, truncation=True, max_length=max_length, is_split_into_words=True)
+            if len(encodings['input_ids']) == max_length:
+                sentence_nos.append(sentence_no)
+    return sentence_nos
+    
 def tokenize_sentence(sentence, tokenizer, return_tensors=None):
     encodings = tokenizer(sentence['tokens'], truncation=True, max_length=512, is_split_into_words=True,return_tensors=return_tensors)
     # You will get an error if a TokenizerFast cannot be used!!!
