@@ -99,7 +99,7 @@ def get_prediction_graph_info(classifier,token_index,tokens):
         cosine_matrix = pd.DataFrame(cosine_sim,index=type_vectors.index,columns=type_vectors.index)
         neighbors = cosine_matrix[instance_lemma].sort_values(ascending=False)
         closest = neighbors[1:4]
-        type_feat_str = f'Similar to {', '.join(closest.keys())}, ...'
+        type_feat_str = f"Similar to {','.join(closest.keys())}, ..."
     else:
         type_feat_str = f'This word is not recognized (probably it is infrequent)'
     word_no = classifier.test_data.iloc[token_index,0]
