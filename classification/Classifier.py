@@ -127,7 +127,7 @@ class Classifier:
         # Fixes a bug with new version of transformers library
         for param in self.classifier_model.parameters():
             param.data = param.data.contiguous()
-        training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,learning_rate=learning_rate,save_strategy='no')
+        training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,learning_rate=learning_rate,save_strategy='no',report_to='none')
 
         # "Frozen" part
         if freeze_epochs > 0:
@@ -178,7 +178,7 @@ class Classifier:
         test_data = test_data.map(self.align_labels,fn_kwargs={"tag2id":tag2id,"labelname":labelname})
         
         data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer)
-        training_args = TrainingArguments(output_dir=self.model_dir,per_device_eval_batch_size=batch_size)
+        training_args = TrainingArguments(output_dir=self.model_dir,per_device_eval_batch_size=batch_size,report_to='none')
         trainer = Trainer(model=self.classifier_model,args=training_args,tokenizer=self.tokenizer,data_collator=data_collator)
         
         predictions = trainer.predict(test_data)
@@ -288,7 +288,7 @@ class MultitaskClassifier(Classifier):
         self.config = AutoConfig.from_pretrained(self.transformer_path)
         self.multi_task_model = MultiTaskModel(self.transformer_path, self.tasks)
 
-        training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,learning_rate=learning_rate,save_strategy='no')
+        training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,learning_rate=learning_rate,save_strategy='no',report_to='none')
         data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer,
                                                            pad_to_multiple_of=8 if training_args.fp16 else None)
 
@@ -368,7 +368,7 @@ class MultitaskClassifier(Classifier):
             data_collator = default_data_collator
 
 
-        training_args = TrainingArguments(output_dir=self.model_dir, per_device_eval_batch_size=batch_size)
+        training_args = TrainingArguments(output_dir=self.model_dir, per_device_eval_batch_size=batch_size,report_to='none')
         trainer = Trainer(model=self.classifier_model, args=training_args, tokenizer=self.tokenizer,
                           data_collator=data_collator)
 
