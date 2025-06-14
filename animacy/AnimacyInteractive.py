@@ -27,7 +27,7 @@ def enter_sent():
         sent = example_sentences[sent]
     return sent
 
-def analyze_sent(sent,tagger,lemmatizer,classifier,extractor):
+def analyze_sent(sent,tagger,lemmatizer,classifier,extractor,static_vectors,alignment_vectors,person_gazetteer,place_gazetteer):
     disable_progress_bar()
     tokens = [Tokenization.greek_glaux_to_tokens(sent)]
     wids_sent = []
@@ -57,12 +57,12 @@ def analyze_sent(sent,tagger,lemmatizer,classifier,extractor):
     for key, vector in vectors_test.items():
         vectors_test[key] = [round(val,3) for val in vectors_test[key]]
     features = [
-           ['static_embedding',{'vector_file':'C:/Users/u0111778/KU Leuven/ARTS - Alek Keersmaekers (u0111778) - Documenten/PhD/DistributionalSemantics/Vectors_1019/Nouns_withCapitals_0424_SVD_smoothed.txt','feature_name':'Type','fill_nas':None,'normalize':True}],
+           ['static_embedding',{'vector_file':static_vectors,'feature_name':'Type','fill_nas':None,'normalize':True}],
            ['transformer_embedding',{'feature_name':'Token','transformer_embeddings':vectors_test,'normalize':True}],
            ['capital'],
-           ['static_embedding',{'vector_file':'C:/Users/u0111778/OneDrive - KU Leuven/Lexica/alignment_vectors_new.txt','feature_name':'Eng','fill_nas':None,'header':None,'normalize':True}],
-           ['gazetteer',{'gazetteer_file':'C:/Users/u0111778/KU Leuven/ARTS - Alek Keersmaekers (u0111778) - Documenten/NLP/Animacy/gazetteers/namvar.csv','gazetteer_name':'Person'}],
-           ['gazetteer',{'gazetteer_file':'C:/Users/u0111778/KU Leuven/ARTS - Alek Keersmaekers (u0111778) - Documenten/NLP/Animacy/gazetteers/geovar.csv','gazetteer_name':'Place'}],
+           ['static_embedding',{'vector_file':alignment_vectors,'feature_name':'Eng','fill_nas':None,'header':None,'normalize':True}],
+           ['gazetteer',{'gazetteer_file':person_gazetteer,'gazetteer_name':'Person'}],
+           ['gazetteer',{'gazetteer_file':place_gazetteer,'gazetteer_name':'Place'}],
            ]
     classifier.test_data = TabularDatasets.add_features(classifier.test_data, features)
     test = classifier.test_data.copy()
