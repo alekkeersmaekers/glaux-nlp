@@ -16,6 +16,11 @@ def tokenize_sentence(sentence, tokenizer, return_tensors=None):
     encodings['subword_ids'] = encodings.word_ids()
     return encodings
 
+def tokenize_batch(batch, tokenizer, return_tensors=None):
+    encodings = tokenizer(batch['tokens'], truncation=True, max_length=512, is_split_into_words=True,return_tensors=return_tensors,padding=True)
+    encodings['subword_ids'] = [encodings.word_ids(batch_index=i) for i in range(len(batch['tokens']))]
+    return encodings
+
 def normalize_greek_nfd(word):
     word_norm = ''
     for c in word:

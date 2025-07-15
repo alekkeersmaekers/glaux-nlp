@@ -11,8 +11,14 @@ class VectorExtractor:
     def process_sentence(self,sentence):
         sentence.update(Tokenization.tokenize_sentence(sentence,tokenizer=self.tokenizer,return_tensors='pt'))
         sentence = self.align_wids_subwords(sentence)
-        sentence = self.get_embeddings(sentence,self.model)
+        sentence = self.get_embeddings(sentence)
         return sentence
+    
+    def process_batch(self,batch):
+        batch.update(Tokenization.tokenize_batch(batch, tokenizer=self.tokenizer, return_tensors='pt'))
+        batch = self.align_wids_subwords_batch(batch)
+        batch = self.get_embeddings_batch(batch)
+        return batch
     
     def align_wids_subwords(self,sentence):
         wids = sentence['wids']
@@ -31,60 +37,119 @@ class VectorExtractor:
         sentence['wids_subwords'] =  wids_subwords
         return sentence
     
-    def get_embeddings(self,sentence,model):
+    def align_wids_subwords_batch(self,batch):
+        batch_wids_subwords = []
+        for wids, subword_ids in zip(batch['wids'], batch['subword_ids']):
+            wids_subwords = []
+            id = -1
+            previous_subword_id = -1
+            for subword_id in subword_ids:
+                if subword_id is None:
+                    wids_subwords.append('-1')
+                else:
+                    if subword_id != previous_subword_id and subword_id is not None:
+                        id += 1
+                    wids_subwords.append(wids[id])
+                    previous_subword_id = subword_id
+            batch_wids_subwords.append(wids_subwords)
+        batch['wids_subwords'] = batch_wids_subwords
+        return batch
+    
+    def get_embeddings(self,sentence):
         with torch.no_grad():
-            input_ids = sentence['input_ids'].to(model.device)
-            attention_mask = sentence['attention_mask'].to(model.device)
-            token_type_ids = sentence['token_type_ids'].to(model.device) if 'token_type_ids' in sentence else None
-            output = model(input_ids=input_ids,attention_mask=attention_mask,token_type_ids=token_type_ids,output_hidden_states=True)
-        states = output.hidden_states
-        embeddings = torch.stack(states)[:, 0, :, :].permute(1,0,2).cpu()
-        sentence['embeddings'] = embeddings
+            input_ids = sentence['input_ids'].to(self.model.device)
+            attention_mask = sentence['attention_mask'].to(self.model.device)
+            token_type_ids = sentence['token_type_ids'].to(self.model.device) if 'token_type_ids' in sentence else None
+            output = self.model(input_ids=input_ids,attention_mask=attention_mask,token_type_ids=token_type_ids,output_hidden_states=True)
+        hidden_states = output.hidden_states
+        kept_states = torch.stack([hidden_states[i] for i in self.layers])
+        embeddings = kept_states[:, 0, :, :].permute(1,0,2).cpu()
+        if self.limit_wids is not None or self.limit_labels is not None or self.exclude_labels is not None:
+            wids_subwords = sentence['wids_subwords']
+            if self.limit_wids is not None:
+                keep_wids = self.limit_wids
+            elif self.limit_labels is not None or self.exclude_labels is not None:
+                wids = sentence['wids']
+                labels = sentence[self.label_name]
+                if self.limit_labels is not None:
+                    keep_wids = [wids[i] for i in range(0,len(wids)) if labels[i] in self.limit_labels]
+                else:
+                    keep_wids = [wids[i] for i in range(0,len(wids)) if labels[i] not in self.exclude_labels]
+            reduced_states = [embeddings[i] for i in range(0,len(embeddings)) if wids_subwords[i] in keep_wids]
+            vector_wids = [wids_subwords[i] for i in range(0,len(wids_subwords)) if wids_subwords[i] in keep_wids]
+        else:
+            wids_subwords = sentence['wids_subwords']
+            reduced_states = [embeddings[i] for i in range(0,len(embeddings)) if wids_subwords[i] != '-1']
+            vector_wids = [wids_subwords[i] for i in range(0,len(wids_subwords)) if wids_subwords[i] != '-1']
+        sentence['embeddings'] = reduced_states
+        sentence['vector_wids'] = vector_wids
         return sentence
     
-    def get_vector(self,sentence,wid,layers=[-2],layer_combination_method='sum',subwords_combination_method='mean'):
-        ids = [i for i, subword_id in enumerate(sentence['wids_subwords']) if subword_id == wid]
-        vectors = []
-        embeddings = sentence['embeddings']
-        for i in ids:
-            vectors.append(embeddings[i])
-        if subwords_combination_method == 'mean':
-            vector = torch.mean(torch.stack(vectors),dim=0)
-        elif subwords_combination_method == 'first':
-            vector = vectors[0]
-        elif subwords_combination_method == 'last':
-            vector = vectors[-1]
-        vector_layers = []
-        for layer in layers:
-            vector_layers.append(vector[layer])
-        if layer_combination_method == 'concatenate':
-            return torch.cat(vector_layers,dim=0).numpy()
-        elif layer_combination_method == 'sum':
-            return torch.sum(torch.stack(vector_layers),dim=0).numpy()
+    def get_embeddings_batch(self,batch):
+        with torch.no_grad():
+            input_ids = batch['input_ids'].to(self.model.device)
+            attention_mask = batch['attention_mask'].to(self.model.device)
+            token_type_ids = batch['token_type_ids'].to(self.model.device) if 'token_type_ids' in batch else None
+            output = self.model(input_ids=input_ids,attention_mask=attention_mask,token_type_ids=token_type_ids,output_hidden_states=True)
+        hidden_states = output.hidden_states
+        kept_states = torch.stack([hidden_states[i] for i in self.layers])
+        kept_states = kept_states.permute(1,2,0,3).cpu()
+        reduced_states = []
+        vector_wids = []
+        if self.limit_wids is not None or self.limit_labels is not None or self.exclude_labels is not None:
+            for sent_no, sent_embeddings in enumerate(kept_states):
+                wids_subwords = batch['wids_subwords'][sent_no]
+                if self.limit_wids is not None:
+                    keep_wids = self.limit_wids
+                elif self.limit_labels is not None or self.exclude_labels is not None:
+                    wids = batch['wids'][sent_no]
+                    labels = batch[self.label_name][sent_no]
+                    if self.limit_labels is not None:
+                        keep_wids = [wids[i] for i in range(0,len(wids)) if labels[i] in self.limit_labels]
+                    else:
+                        keep_wids = [wids[i] for i in range(0,len(wids)) if labels[i] not in self.exclude_labels]
+                reduced_states.append([sent_embeddings[i] for i in range(0,len(sent_embeddings)) if wids_subwords[i] in keep_wids])
+                vector_wids.append([wids_subwords[i] for i in range(0,len(wids_subwords)) if wids_subwords[i] in keep_wids])
+        else:
+            for sent_no, sent_embeddings in enumerate(kept_states):
+                wids_subwords = batch['wids_subwords'][sent_no]
+                reduced_states.append([sent_embeddings[i] for i in range(0,len(sent_embeddings)) if wids_subwords[i] != '-1'])
+                vector_wids.append([wids_subwords[i] for i in range(0,len(wids_subwords)) if wids_subwords[i] != '-1'])
+        batch['embeddings'] = reduced_states
+        batch['vector_wids'] = vector_wids
+        return batch
     
-    def extract_vectors(self,dataset,limit_wids=None,limit_labels=None,exclude_labels=None,label_name='MISC',layers=[-2],layer_combination_method='sum',subwords_combination_method='mean',average_same_id=False):
+    def get_vector(self,vectors):
+        if self.subwords_combination_method == 'mean':
+            if len(vectors) > 1:
+                vector = torch.mean(torch.stack(vectors),dim=0)
+            else:
+                vector = vectors[0]
+        elif self.subwords_combination_method == 'first':
+            vector = vectors[0]
+        elif self.subwords_combination_method == 'last':
+            vector = vectors[-1]
+        if self.layer_combination_method == 'concatenate':
+            return torch.cat(vector,dim=0).numpy()
+        elif self.layer_combination_method == 'sum':
+            return torch.sum(vector,dim=0).numpy()
+    
+    def extract_vectors(self,dataset,average_same_id=False):
         vectors = {}
         for sent in dataset:
-            labels = sent[label_name] if (limit_labels or exclude_labels) else None
-            for word_no, wid in enumerate(sent['wids']):
-                label = labels[word_no] if labels else None
-                include = (
-                    (limit_wids is None or wid in limit_wids) and
-                    (limit_labels is None or label in limit_labels) and
-                    (exclude_labels is None or label not in exclude_labels)
-                )
-                if include:
-                    if wid in sent['wids_subwords']:
-                        vector = self.get_vector(sent,wid,layers=layers,layer_combination_method=layer_combination_method,subwords_combination_method=subwords_combination_method)
-                        if not average_same_id:
-                            vectors[wid] = vector
-                        else:
-                            if wid in vectors:
-                                vectors[wid].append(vector)
-                            else:
-                                vectors[wid] = [vector]
-                    else:
-                        print(f'{wid} is in a sentence larger than the allowed subword limit. It will not be added to the vectors.')
+            wid_embeddings = {}
+            for wid_no, wid in enumerate(sent['vector_wids']):
+                embeddings = wid_embeddings.get(wid,[])
+                embeddings.append(sent['embeddings'][wid_no])
+                wid_embeddings[wid] = embeddings
+            for wid, embeddings in wid_embeddings.items():
+                vector = self.get_vector(embeddings)
+                if not average_same_id:
+                    vectors[wid] = vector
+                else:
+                    wid_vecs = vectors.get(wid,[])
+                    wid_vecs.append(vector)
+                    vectors[wid] = wid_vecs
         if not average_same_id:
             return(vectors)
         else:
@@ -94,24 +159,20 @@ class VectorExtractor:
                 transposed = list(zip(*all_vectors))
                 averages = [sum(elements) / length for elements in transposed]
                 averaged_vectors[wid] = averages
-            return averaged_vectors    
+            return averaged_vectors
     
-    def build_dataset(self,wids,tokens,labels=None,label_name=None,normalization_rule=None):
+    def build_dataset(self,wids,tokens,labels=None,normalization_rule=None,batched=False,batch_size=1000):
         tokens_norm = tokens
         if normalization_rule is not None:
             tokens_norm = Tokenization.normalize_tokens(tokens, normalization_rule)
-        if label_name is not None and labels is not None:
-            dataset = Datasets.build_dataset(tokens_norm, {label_name:labels}, wids)
+        if self.label_name is not None and labels is not None:
+            dataset = Datasets.build_dataset(tokens_norm, {self.label_name:labels}, wids)
         else:
             dataset = Datasets.build_dataset(tokens_norm, None, wids)
-        #dataset = dataset.map(Tokenization.tokenize_sentence,fn_kwargs={"tokenizer":self.tokenizer,"return_tensors":'pt'})
-        #dataset = dataset.map(self.align_wids_subwords)
-        #if "token_type_ids" in dataset:
-        #    dataset.set_format("pt", columns=["input_ids","token_type_ids","attention_mask"], output_all_columns=True)
-        #else:
-        #    dataset.set_format("pt", columns=["input_ids","attention_mask"], output_all_columns=True)
-        #dataset = dataset.map(self.get_embeddings,fn_kwargs={"model":self.model})
-        dataset = dataset.map(self.process_sentence)
+        if not batched:
+            dataset = dataset.map(self.process_sentence)
+        else:
+            dataset = dataset.map(self.process_batch,batched=True,batch_size=batch_size)
         dataset.set_format("pt", columns=["embeddings"], output_all_columns=True)
         return dataset
         
@@ -130,7 +191,7 @@ class VectorExtractor:
                             outfile.write("\t"+("{:0."+str(precision)+"f}").format(element))
                         outfile.write('\n')
 
-    def __init__(self,transformer_path,tokenizer_path=None,data_path=None,data_preset='CONLLU',feature_cols=None,tokenizer_add_prefix_space=False):
+    def __init__(self,transformer_path,tokenizer_path=None,data_path=None,data_preset='CONLLU',feature_cols=None,tokenizer_add_prefix_space=False,layers=range(1,13),limit_wids=None,limit_labels=None,exclude_labels=None,label_name='labels',layer_combination_method='sum',subwords_combination_method='mean'):
         if tokenizer_path is None:
             self.tokenizer = AutoTokenizer.from_pretrained(transformer_path,add_prefix_space=tokenizer_add_prefix_space)
         else:
@@ -141,6 +202,13 @@ class VectorExtractor:
         self.model = AutoModel.from_pretrained(transformer_path,output_hidden_states=True)
         self.model = self.model.to("cuda" if torch.cuda.is_available() else "cpu")
         self.model.eval()
+        self.layers = layers
+        self.limit_wids = limit_wids
+        self.limit_labels = limit_labels
+        self.exclude_labels = exclude_labels
+        self.label_name = label_name
+        self.layer_combination_method = layer_combination_method
+        self.subwords_combination_method = subwords_combination_method
 
 if __name__ == '__main__':
     arg_parser = ArgumentParser()
@@ -177,13 +245,13 @@ if __name__ == '__main__':
     if args.layers is not None:
         layers = [int(x) for x in args.layers.split(',')]
     
-    extractor = VectorExtractor(transformer_path=args.transformer_path,tokenizer_path=args.tokenizer_path,data_path=args.data,data_preset=args.data_preset,feature_cols=feature_cols)
+    extractor = VectorExtractor(transformer_path=args.transformer_path,tokenizer_path=args.tokenizer_path,data_path=args.data,data_preset=args.data_preset,feature_cols=feature_cols,layers=layers,limit_wids=limit_wids,limit_labels=limit_labels,exclude_labels=exclude_labels,label_name=args.label_column,layer_combination_method=args.layer_combination_method,subwords_combination_method=args.subwords_combination_method)
     if args.label_column is not None:
         wids, tokens, tags = extractor.reader.read_tokens(extractor.data,args.label_column,in_feats=False)
         dataset = extractor.build_dataset(wids,tokens,tags,args.label_column,args.normalization_rule)
     else:
         wids, tokens = extractor.reader.read_tokens(extractor.data, in_feats=False,return_tags=False)
         dataset = extractor.build_dataset(wids,tokens,None,None,args.normalization_rule)
-    vectors = extractor.extract_vectors(dataset,limit_wids=limit_wids,limit_labels=limit_labels,exclude_labels=exclude_labels,label_name=args.label_column,layers=layers,layer_combination_method=args.layer_combination_method,subwords_combination_method=args.subwords_combination_method)
+    vectors = extractor.extract_vectors(dataset)
     extractor.write_vectors(vectors, args.output, wids, tokens, tags)
     
