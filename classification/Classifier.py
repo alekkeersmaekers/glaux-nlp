@@ -120,14 +120,14 @@ class Classifier:
         sentence['labels'] = enc_labels
         return sentence
         
-    def train_classifier(self,output_model,train_dataset,tag2id,id2tag,epochs=3,batch_size=16,learning_rate=5e-5, freeze_epochs=0, training_params={}):
+    def train_classifier(self,output_model,train_dataset,tag2id,id2tag,epochs=3,batch_size=16,learning_rate=5e-5, freeze_epochs=0, save_strategy='no', training_params={}):
         data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer)        
         self.config = AutoConfig.from_pretrained(self.transformer_path, num_labels=len(tag2id), id2label=id2tag, label2id=tag2id)
         self.classifier_model = AutoModelForTokenClassification.from_pretrained(self.transformer_path,config=self.config)
         # Fixes a bug with new version of transformers library
         for param in self.classifier_model.parameters():
             param.data = param.data.contiguous()
-        training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,learning_rate=learning_rate,save_strategy='no',report_to='none', **training_params)
+        training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,learning_rate=learning_rate,save_strategy=save_strategy,report_to='none', **training_params)
 
         # "Frozen" part
         if freeze_epochs > 0:
@@ -282,13 +282,12 @@ class MultitaskClassifier(Classifier):
         super().__init__(transformer_path, model_dir, tokenizer_path, training_data, test_data, ignore_label,
                          unknown_label, data_preset, feature_cols, tokenizer_add_prefix_space)
 
-    def train_classifier(self, output_model, train_dataset, tag2id, id2tag, epochs=5, batch_size=16,
-                         learning_rate=2e-5, freeze_epochs=0, training_params={}):
+    def train_classifier(self, output_model, train_dataset, tag2id, id2tag, epochs=5, batch_size=16, learning_rate=2e-5, freeze_epochs=0, save_strategy='no', training_params={}):
 
         self.config = AutoConfig.from_pretrained(self.transformer_path)
         self.multi_task_model = MultiTaskModel(self.transformer_path, self.tasks)
 
-        training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,learning_rate=learning_rate,save_strategy='no',report_to='none', **training_params)
+        training_args = TrainingArguments(output_dir=output_model,num_train_epochs=epochs,per_device_train_batch_size=batch_size,learning_rate=learning_rate,save_strategy=save_strategy,report_to='none', **training_params)
         data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer,
                                                            pad_to_multiple_of=8 if training_args.fp16 else None)
 
