@@ -130,7 +130,7 @@ class VectorExtractor:
         elif self.subwords_combination_method == 'last':
             vector = vectors[-1]
         if self.layer_combination_method == 'concatenate':
-            return torch.cat(vector,dim=0).numpy()
+            return vector.flatten().numpy()
         elif self.layer_combination_method == 'sum':
             return torch.sum(vector,dim=0).numpy()
     
