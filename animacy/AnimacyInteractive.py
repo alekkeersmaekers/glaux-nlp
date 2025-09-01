@@ -52,8 +52,8 @@ def analyze_sent(sent,tagger,lemmatizer,classifier,extractor,static_vectors,alig
             labels_sent.append('_')
     labels = [labels_sent]
     classifier.test_data = pd.DataFrame(test_data,columns=['ID','FORM','LEMMA'])
-    dataset = extractor.build_dataset(wids,tokens,labels,"MISC",'NFC')
-    vectors_test = extractor.extract_vectors(dataset,exclude_labels='_',label_name='MISC',layers=range(1,13))
+    dataset = extractor.build_dataset(wids,tokens,labels,'NFC')
+    vectors_test = extractor.extract_vectors(dataset)
     for key, vector in vectors_test.items():
         vectors_test[key] = [round(val,3) for val in vectors_test[key]]
     features = [
@@ -140,7 +140,7 @@ def setup(tagger_path,lemmatizer_path,classifier_path,alignment_lexicon_path):
     lemmatizer = DictionaryLemmatizer(lemmatizer_path)
     with open(classifier_path,'rb') as infile:
         classifier = pickle.load(infile)
-    extractor = VectorExtractor(transformer_path='bowphs/greberta',data_preset='simple',tokenizer_add_prefix_space=True)
+    extractor = VectorExtractor(transformer_path='bowphs/greberta',data_preset='simple',tokenizer_add_prefix_space=True,layers=range(1,13),exclude_labels='_')
     alignment_lexicon = {}
     with open(alignment_lexicon_path,encoding='utf8') as infile:
         count = 0
