@@ -36,6 +36,7 @@ class TreebankLoader():
             for token in currentSent['tokens']:
                 if 'form' in token:
                     token['form'] = normalize_token(token['form'],self.normalization)
+                if 'lemma' in token:
                     token['lemma'] = normalize_token(token['lemma'],self.normalization)
         sent = {}
         sent.update(currentSent)
