@@ -1,7 +1,7 @@
 from treebanks.NodeOperations import children, isCo, realRel, realNode, findClosest
 import unicodedata as ud
 
-def removePaddedEllipsis(tree,wordid):
+def removePaddedEllipsis(tree,wordid='wordid'):
     removeNode = None
     for node in reversed(tree):
         if 'artificial' in node and node['relation'] == 'UNLINKED':
@@ -13,7 +13,7 @@ def removePaddedEllipsis(tree,wordid):
         tree.remove(removeNode)
         removePaddedEllipsis(tree,wordid)
 
-def modifyPragueCoordination(tree,wordid):
+def modifyPragueCoordination(tree,wordid='wordid',print_errors=True):
     for node in tree:
         if node['relation'] == 'COORD':
             co = []
@@ -24,18 +24,19 @@ def modifyPragueCoordination(tree,wordid):
                     coordination_rel = c['relation']
                     break
             for c in children(node,tree):
-                if isCo(c,tree) and not (coordination_rel is not None and not realRel(c,tree) == coordination_rel):
+                if isCo(c,tree) and not (coordination_rel is not None and not realRel(c,tree,print_errors) == coordination_rel):
                     co.append(c)
                 else:
                     sh_mod.append(c)
             if len(co) >= 2:
                 for i in range(1,len(co)):
-                    co[i]['head'] = realNode(co[i-1],tree)
+                    co[i]['head'] = realNode(co[i-1],tree,print_errors=print_errors)
             if len(co) == 0:
                 id = node[wordid]
-                print(f'modifyPragueCoordination {id}: no co nodes found')
+                if print_errors:
+                    print(f'modifyPragueCoordination {id}: no co nodes found')
             else:
-                firstCo = realNode(co[0],tree)
+                firstCo = realNode(co[0],tree,print_errors=print_errors)
                 firstCo['new_rel'] = firstCo['relation'].replace('_CO','')
                 co[0]['head'] = node['head']
             coordinators = []
@@ -67,7 +68,8 @@ def modifyPragueCoordination(tree,wordid):
                     coordinator['relation'] = 'AuxY'
                 else:
                     id = node[wordid]
-                    print(f'modifyPragueCoordination {id}: no closest coordinator found')
+                    if print_errors:
+                        print(f'modifyPragueCoordination {id}: no closest coordinator found')
             sh_mod = [mod for mod in sh_mod if mod not in coordinators]
             for mod in sh_mod:
                 if len(coordinators)>0:

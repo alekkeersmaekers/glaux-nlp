@@ -126,7 +126,7 @@ class TreebankLoader():
     
     def parse_conll(self,conll_file,columns=['id','form','lemma','upos','xpos','feats','head','relation','deps','misc']):
         treebank = []
-        with open(conll_file,'r') as infile:
+        with open(conll_file,'r',encoding='utf8') as infile:
             lines = infile.readlines()
             currentSent = {}
             for line in lines:
@@ -134,7 +134,7 @@ class TreebankLoader():
                 if line == '':
                     self.add_sent(currentSent,treebank)
                 elif line[0] == '#':
-                    if not line.startswith("# text"):
+                    if not line.startswith("# text") and not line.startswith("# file"):
                         split = line.split(" = ")
                         name = split[0].replace("# ","")
                         val = split[1]
@@ -151,6 +151,8 @@ class TreebankLoader():
                             if name == 'head':
                                 word['headid'] = val
                             elif name == 'feats':
+                                if val == '':
+                                    val = '_'
                                 pos = None
                                 if 'upos' in word and word['upos'] != '_':
                                     pos = word['upos']
@@ -163,7 +165,7 @@ class TreebankLoader():
                                 if 'xpos' in word:
                                     del word['xpos']
                             elif name == self.wordid:
-                                word['wordid'] = val
+                                word[self.wordid] = val
                             else:
                                 if name == 'form' and val == 'E':
                                     word['artificial'] = True

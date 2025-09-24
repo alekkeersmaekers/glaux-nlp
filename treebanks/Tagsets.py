@@ -1,4 +1,4 @@
-def perseus_to_feats(perseus_tag, ref):
+def perseus_to_feats(perseus_tag, ref, is_greek=True, allow_unknown_pos=False):
     feats = {}
     pos = ""
     morph = ""
@@ -14,8 +14,11 @@ def perseus_to_feats(perseus_tag, ref):
         "v": "verb", "n": "noun", "l": "article", "a": "adjective", "d": "adverb",
         "c": "conjunction", "r": "preposition", "g": "particle", "m": "numeral",
         "i": "interjection", "u": "PUNCT", "p": "pronoun", "b": "coordinator",
-        "z": "GAP", "q": "ellipsis"
+        "z": "GAP", "q": "ellipsis", "e": "exclamation", "x": "pronoun"
     }
+    # For the Latin treebanks, x gets lost, but not sure if this really matters
+    if allow_unknown_pos:
+        pos_map["-"] = "unknown" 
     
     pos_str = pos_map.get(pos, "UNKNOWN")
     if pos_str == "UNKNOWN":
@@ -36,44 +39,44 @@ def perseus_to_feats(perseus_tag, ref):
     person_str = {'1': '1', '2': '2', '3': '3', '-': '_',}.get(person, "UNKNOWN")
     if person_str == 'UNKNOWN':
         person_str = '_'
-        print(person+'\tperson:unknown')
+        print(f"{person}\tperson:unknown\t{ref}")
     
     number_str = {'s': 'sg', 'p': 'pl', 'd': 'dual', '-': '_'}.get(number, "UNKNOWN")
     if number_str == 'UNKNOWN':
         number_str = '_'
-        print(number+'\tnumber:unknown')
+        print(f"{number}\tnumber:unknown\t{ref}")
     
     tense_str = {'p': 'pres', 'i': 'impf', 'a': 'aor', 'f': 'fut', 'r': 'pf', 'l': 'plupf', 't': 'futpf', '-': '_'}.get(tense, "UNKNOWN")
     if tense_str == 'UNKNOWN':
         tense_str = '_'
-        print(tense+'\ttense:unknown')
+        print(f"{tense}\ttense:unknown\t{ref}")
     
-    mood_str = {'i': 'ind', 's': 'subj', 'o': 'opt', 'm': 'imp', '-': '_', 'p': '_', 'n': '_', 'g': '_'}.get(mood, "UNKNOWN")
+    mood_str = {'i': 'ind', 's': 'subj', 'o': 'opt', 'm': 'imp', '-': '_', 'p': '_', 'n': '_', 'g': '_', 'd': '_', 'u': '_'}.get(mood, "UNKNOWN")
     if mood_str == 'UNKNOWN':
         mood_str = '_'
-        print(mood+'\tmood:unknown')   
+        print(f"{mood}\tmood:unknown\t{ref}")
     # gerund: not a one-to-one translation!
     
-    voice_str = {'a': 'act', 'm': 'mid', 'p': 'pass', 'e': 'mid', '-': '_'}.get(voice, "UNKNOWN")
+    voice_str = {'a': 'act', 'm': 'mid', 'p': 'pass', 'e': 'mid', 'd': 'dep', '-': '_'}.get(voice, "UNKNOWN")
     if voice_str == 'UNKNOWN':
         voice_str = '_'
-        print(voice+'\tvoice:unknown')
+        print(f"{voice}\tvoice:unknown\t{ref}")
     # Not a one-to-one translation: mediopassive is eliminated!
     
     gender_str = {'m': 'masc', 'f': 'fem', 'n': 'neut', 'c': 'comm', '-': '_'}.get(gender, "UNKNOWN")
     if gender_str == 'UNKNOWN':
         gender_str = '_'
-        print(gender+'\tgender:unknown')
+        print(f"{gender}\tgender:unknown\t{ref}")
     
-    case_str = {'n': 'nom', 'g': 'gen', 'd': 'dat', 'a': 'acc', 'v': 'voc', '-': '_'}.get(ncase, "UNKNOWN")
+    case_str = {'n': 'nom', 'g': 'gen', 'd': 'dat', 'a': 'acc', 'v': 'voc', 'b': 'abl', 'l': 'loc', '-': '_'}.get(ncase, "UNKNOWN")
     if case_str == 'UNKNOWN':
         case_str = '_'
-        print(ncase+'\tcase:unknown')
+        print(f"{ncase}\tcase:unknown\t{ref}")
     
     degree_str = {'c': 'comp', 's': 'sup', 'p': '_', '-': '_'}.get(degree, "UNKNOWN")
     if degree_str == 'UNKNOWN':
         degree_str = '_'
-        print(degree+'\tdegree:unknown')
+        print(f"{degree}\tdegree:unknown\t{ref}")
 
     if pos_str in ["adjective", "adverb"] and degree_str == "_":
         degree_str = "pos"
@@ -82,7 +85,14 @@ def perseus_to_feats(perseus_tag, ref):
     elif mood == 'n':
         pos_str = 'infinitive'
     elif mood == 'g':
-        pos_str = 'adjective'
+        if is_greek:
+            pos_str = 'adjective'
+        else:
+            pos_str = 'gerundive'
+    elif mood == 'd':
+        pos_str = 'gerund'
+    elif mood == 'u':
+        pos_str = 'supine'
 
     # Add features to the map
     feats["pos"] = pos_str
@@ -105,7 +115,9 @@ def feats_to_perseus(feats):
         "adjective": 'a', "adverb": 'd', "conjunction": 'c', "preposition": 'r',
         "particle": 'g', "numeral": 'm', "interjection": 'i', "PUNCT": 'u', "pronoun": 'p',
         "personal": 'p', "indefinite": 'p', "demonstrative": 'p', "relative": 'p',
-        "interrogative": 'p', "coordinator": 'c', "GAP": 'z', "ellipsis": 'q'
+        "interrogative": 'p', "coordinator": 'c', "GAP": 'z', "ellipsis": 'q',
+        "gerund": 'v', "gerundive": 'v', "supine": 'v', "exclamation": "e",
+        "unknown": '-'
     }
     pos_str = feats.get('pos')
     pos = pos_map.get(pos_str, 'UNKNOWN')
@@ -136,8 +148,14 @@ def feats_to_perseus(feats):
         mood = 'n'
     elif pos_str == 'participle':
         mood = 'p'
+    elif pos_str == 'gerund':
+        mood = 'd'
+    elif pos_str == 'gerundive':
+        mood = 'g'
+    elif pos_str == 'supine':
+        mood = 'u'
     
-    voice = {'act': 'a', 'mid': 'm', 'pass': 'p', '_': '-'}.get(feats.get("voice"), 'UNKNOWN')
+    voice = {'act': 'a', 'mid': 'm', 'pass': 'p', 'dep': 'd', '_': '-'}.get(feats.get("voice"), 'UNKNOWN')
     if voice == 'UNKNOWN':
         voice = '-'
         print(feats.get("voice")+'\tvoice:unknown')
@@ -147,7 +165,7 @@ def feats_to_perseus(feats):
         gender = '-'
         print(feats.get("gender")+'\tgender:unknown')
     
-    ncase = {'nom': 'n', 'gen': 'g', 'dat': 'd', 'acc': 'a', 'voc': 'v', 'none': '-', '_': '-'}.get(feats.get("case"), 'UNKNOWN')
+    ncase = {'nom': 'n', 'gen': 'g', 'dat': 'd', 'acc': 'a', 'voc': 'v', 'abl': 'b', 'loc': 'l', 'none': '-', '_': '-'}.get(feats.get("case"), 'UNKNOWN')
     if ncase == 'UNKNOWN':
         ncase = '-'
         print(feats.get("ncase")+'\tncase:unknown')
@@ -187,7 +205,7 @@ def ud_to_feats(ud_tag):
         for m in morph:
             m_split = m.split("=")
             if len(m_split) == 2:
-                feats[m_split[0]] = m_split[1]
+                feats[m_split[0].lower()] = m_split[1]
             else:
                 print(f"Error in UD tag: {ud_tag}")
     
