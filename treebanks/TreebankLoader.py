@@ -1,6 +1,7 @@
 import xml.etree.cElementTree as ET
 import treebanks.TreeOperations as to
 from treebanks.Tagsets import ud_to_feats, perseus_to_feats
+from tokenization.Tokenization import normalize_token
 
 class TreebankLoader():
 
@@ -31,6 +32,11 @@ class TreebankLoader():
                     method(tree=currentSent['tokens'],wordid=self.wordid)
                 else:
                     method(tree=currentSent['tokens'],wordid=self.wordid,**operation[1])
+        if self.normalization is not None:
+            for token in currentSent['tokens']:
+                if 'form' in token:
+                    token['form'] = normalize_token(token['form'],self.normalization)
+                    token['lemma'] = normalize_token(token['lemma'],self.normalization)
         sent = {}
         sent.update(currentSent)
         treebank.append(sent)
