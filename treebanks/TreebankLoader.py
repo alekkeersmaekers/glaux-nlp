@@ -174,7 +174,7 @@ class TreebankLoader():
                             elif name == self.wordid:
                                 word[self.wordid] = val
                             else:
-                                if name == 'form' and val == 'E':
+                                if (name == 'form' and val == 'E') or (name =='lemma' and val == 'E'):
                                     word['artificial'] = True
                                 word[name] = val
                     currentSent['tokens'].append(word)

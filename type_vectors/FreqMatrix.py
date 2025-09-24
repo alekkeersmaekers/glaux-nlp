@@ -85,7 +85,7 @@ class FreqMatrix():
             if token['relation'] == conjunct_relation:
                 # This is the head of the first coordinate
                 coHead = coordinationHeadUD(token,conjunct_relation)
-                if coHead is not None and len(coHead['lemma']) > 0:
+                if coHead is not None and validToken(coHead):
                     # This is the first coordinate
                     firstCo = highestCoordinateUD(token,conjunct_relation)
                     relation = coHead["relation"] if coHead["relation"] in {"AuxP", "AuxC"} else firstCo["relation"]
@@ -93,13 +93,13 @@ class FreqMatrix():
                     self.updateContexts(wordContexts,feat)
                     if coHead['relation'] == 'AuxP' or coHead['relation'] == 'AuxC':
                         realHead = coHead['head']
-                        if realHead is not None and len(realHead['lemma']) > 0:
+                        if realHead is not None and validToken(realHead):
                             feat = generateLemmaFeat(realHead,relation=firstCo['relation'],arc_direction=arc_direction,synt_relation=synt_relation,prefix='H',conjunct_relation=conjunct_relation)
                             self.updateContexts(wordContexts,feat)
             # Here the second head feature gets added (see above)
             if head['relation'] == 'AuxP' or head['relation'] == 'AuxC':
                 head2 = head['head']
-                if head2 is not None and len(head2['lemma']) > 0:
+                if head2 is not None and validToken(head2):
                     feat = generateLemmaFeat(head2,relation=token['relation'],arc_direction=arc_direction,synt_relation=synt_relation,prefix='H',conjunct_relation=conjunct_relation)
                     self.updateContexts(wordContexts,feat)
     
