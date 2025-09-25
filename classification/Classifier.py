@@ -12,6 +12,7 @@ from argparse import ArgumentParser
 import json
 from tokenization import Tokenization
 from data import Datasets
+import shap
 
 class Classifier:
     
@@ -164,7 +165,7 @@ class Classifier:
 
         self.classifier_model.save_pretrained(save_directory=training_args.output_dir)
             
-    def predict(self,test_data,model_dir=None,batch_size=16,labelname='MISC'):        
+    def predict(self,test_data,model_dir=None,batch_size=16,labelname='MISC',last_subword=True):        
         ##Only works when padding is set to the right!!! See below
         if self.classifier_model is None:
             self.classifier_model = AutoModelForTokenClassification.from_pretrained(model_dir)
@@ -175,7 +176,7 @@ class Classifier:
         if self.unknown_label is not None:
             tag2id[self.unknown_label] = 0
         
-        test_data = test_data.map(self.align_labels,fn_kwargs={"tag2id":tag2id,"labelname":labelname})
+        test_data = test_data.map(self.align_labels,fn_kwargs={"tag2id":tag2id,"labelname":labelname,"last_subword":last_subword})
         
         data_collator = DataCollatorForTokenClassification(tokenizer=self.tokenizer)
         training_args = TrainingArguments(output_dir=self.model_dir,per_device_eval_batch_size=batch_size,report_to='none')
@@ -187,7 +188,7 @@ class Classifier:
         # This only works when padding is set to the right, since the padded predictions will be longer than valid_subword
         all_preds = []
         for sent_no, sent in enumerate(test_data):
-            valid_subwords = self.get_valid_subwords(sent['subword_ids'])
+            valid_subwords = self.get_valid_subwords(sent['subword_ids'],last_subword=last_subword)
             for subword_no, valid_subword in enumerate(valid_subwords):
                 if valid_subword:
                     # If a (sub)word has the label defined by ignore_label, it is also set to -100 with classifier.align_labels, even though it is counted as a valid subword
@@ -240,6 +241,57 @@ class Classifier:
                             outfile.write('\n')
                 if output_format == 'CONLLU' or output_format == 'simple':
                     outfile.write('\n')
+
+    def get_indices(self,wid,test_data,last_subword=True):
+        #This function is used in explain_prediction to map the String-based tokenization that SHAP expects to the actual word in the pretokenized sentence
+        for sent_no, sent in enumerate(test_data):
+            if wid in sent['wids']:
+                break
+        i = sent['wids'].index(wid)
+        target_token = sent['tokens'][i]
+        tokens_wids = {}
+        for token_no, token in enumerate(sent['tokens']):
+            wids = tokens_wids.get(token,[])
+            wids.append(sent['wids'][token_no])
+            tokens_wids[token] = wids
+        target_no = tokens_wids[target_token].index(wid)
+        sent_str = ' '.join(sent['tokens'])
+        encodings = self.tokenizer(sent_str, padding=True, truncation=True, return_tensors="pt")
+        subword_ids = encodings.word_ids()
+        pretokenized = self.tokenizer.backend_tokenizer.pre_tokenizer.pre_tokenize_str(sent_str)
+        new_tokens_wids = {}
+        for word_no, w in enumerate(pretokenized):
+            wids = new_tokens_wids.get(w[0],[])
+            wids.append(word_no)
+            new_tokens_wids[w[0]] = wids
+        new_word_no = new_tokens_wids[target_token][target_no]
+        subwords = [subword_no for subword_no, subword in enumerate(subword_ids) if subword == new_word_no]
+        if last_subword:
+            return sent_no, subwords[-1]
+        else:
+            return sent_no, subwords[0]
+    
+    def make_predict_fn(self,token_index):
+        def predict(sentences):
+            sentences = sentences.tolist()
+            encodings = self.tokenizer(sentences, padding=True, truncation=True, return_tensors="pt").to(self.device)
+            with torch.no_grad():
+                outputs = self.classifier_model(**encodings)
+                logits = outputs.logits  # (batch, seq_len, num_labels)
+                probs = torch.nn.functional.softmax(logits, dim=-1)
+            return probs[:, token_index, :].cpu().numpy()
+        return predict
+    
+    def explain_prediction(self,wid,test_data,last_subword=True):
+        # I think it's better to make last_subword a parameter of classifier, will do that in a later stage
+        sent_no, i = self.get_indices(wid,test_data,last_subword)
+        predict_fn = self.make_predict_fn(token_index=i)
+        explainer = shap.Explainer(predict_fn, self.tokenizer)
+        shap_values = explainer([' '.join(test_data[sent_no]['tokens'])])
+        id2tag = self.config.id2label
+        class_names = [id2tag[i] for i in range(len(id2tag))]
+        shap_values.output_names = class_names
+        shap.plots.text(shap_values[0])
 
 def compute_metrics(p: EvalPrediction):
     preds = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions
@@ -350,7 +402,7 @@ class MultitaskClassifier(Classifier):
         trainer.save_metrics("train", metrics)
         trainer.save_state()
 
-    def predict(self, test_data, model_dir=None, batch_size=16, labelname='MISC'):
+    def predict(self, test_data, model_dir=None, batch_size=16, labelname='MISC', last_subword=True):
         ##Only works when padding is set to the right!!! See below
         self.classifier_model = MultiTaskModel(self.transformer_path, self.tasks)
         self.classifier_model.load_state_dict(torch.load(f"{self.model_dir}/pytorch_model.bin"), strict=False)
@@ -358,7 +410,7 @@ class MultitaskClassifier(Classifier):
         id2tag = {k: v for k, v in enumerate(current_task.label_list)}
         tag2id = {v: k for k, v in enumerate(current_task.label_list)}
 
-        test_data = test_data.map(self.align_labels, fn_kwargs={"tag2id": tag2id, "labelname": labelname})
+        test_data = test_data.map(self.align_labels, fn_kwargs={"tag2id": tag2id, "labelname": labelname, "last_subword": last_subword})
         test_data = test_data.add_column("task_ids", [current_task.id] * len(test_data))
 
         if current_task.type == "token_classification":
@@ -379,7 +431,7 @@ class MultitaskClassifier(Classifier):
         # This only works when padding is set to the right, since the padded predictions will be longer than valid_subword
         all_preds = []
         for sent_no, sent in enumerate(test_data):
-            valid_subwords = self.get_valid_subwords(sent['subword_ids'])
+            valid_subwords = self.get_valid_subwords(sent['subword_ids'], last_subword=last_subword)
             for subword_no, valid_subword in enumerate(valid_subwords):
                 if valid_subword:
                     # If a (sub)word has the label defined by ignore_label, it is also set to -100 with classifier.align_labels, even though it is counted as a valid subword
