@@ -291,7 +291,7 @@ class Classifier:
         id2tag = self.config.id2label
         class_names = [id2tag[i] for i in range(len(id2tag))]
         shap_values.output_names = class_names
-        return shap.plots.text(shap_values[0])
+        return shap.plots.text(shap_values[0], display=False)
 
 def compute_metrics(p: EvalPrediction):
     preds = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions
