@@ -27,7 +27,7 @@ def enter_sent():
         sent = example_sentences[sent]
     return sent
 
-def analyze_sent(sent,tagger,lemmatizer,classifier,extractor,static_vectors,alignment_vectors,person_gazetteer,place_gazetteer):
+def analyze_sent(sent,tagger,lemmatizer,classifier,extractor,static_vectors,alignment_vectors,person_gazetteer,place_gazetteer,return_lemmas=False):
     disable_progress_bar()
     tokens = [Tokenization.greek_glaux_to_tokens(sent)]
     wids_sent = []
@@ -39,6 +39,7 @@ def analyze_sent(sent,tagger,lemmatizer,classifier,extractor,static_vectors,alig
     best_tags, num_poss = tagger.tag_data(tokens_norm, all_preds, False, True, disable_progress_bar=True)
     labels_sent = []
     test_data = []
+    lemmas = {}
     for tag_no, tag in enumerate(best_tags):
         tag_dict = dict(tag[0])
         tag_dict['pos'] = tag_dict.pop('XPOS')
@@ -48,6 +49,7 @@ def analyze_sent(sent,tagger,lemmatizer,classifier,extractor,static_vectors,alig
             token = tokens[0][tag_no]
             lemma = ud.normalize('NFC',lemmatizer.lemmatize(token,perseus_tag))
             test_data.append([tag_no,token,lemma])
+            lemmas[tag_no] = lemma
         else:
             labels_sent.append('_')
     labels = [labels_sent]
@@ -83,7 +85,10 @@ def analyze_sent(sent,tagger,lemmatizer,classifier,extractor,static_vectors,alig
     classifier.merge_shap_values(shap_values,'Token')
     classifier.merge_shap_values(shap_values,'Eng')
     shap_values.feature_names = ['General meaning of the word','Sentence context','Is the word capitalized?','English translations of the word','Does the word occur in a list of people?','Does the word occur in a list of places?']
-    return tokens, results, shap_values
+    if return_lemmas:
+        return tokens, results, shap_values, lemmas
+    else:
+        return tokens, results, shap_values
 
 def get_prediction_graph_info(classifier,token_index,tokens):
     type_vectors = classifier.training_data.iloc[:,5:305].copy()
@@ -134,6 +139,81 @@ def explain_prediction(pred_class,classifier,shap_values,token_index,type_feat_s
         title = f"Why is {classifier.test_data.iloc[token_index,1]} NOT predicted as '{pred_class}'?"
     plt.title(title)
     plt.show()
+
+def get_index(word_no,tokens,extractor):
+    # See classifier.get_indices, but here we do single sentence classification so sent_index is not necessary
+    target_token = ud.normalize('NFC',tokens[0][word_no])
+    tokens_wordnos = {}
+    for token_no, token in enumerate(tokens[0]):
+        token = ud.normalize('NFC',token)
+        wordnos = tokens_wordnos.get(token,[])
+        wordnos.append(token_no)
+        tokens_wordnos[token] = wordnos
+    target_no = tokens_wordnos[target_token].index(word_no)
+    sent_str = ud.normalize('NFC',' '.join(tokens[0]))
+    enc = extractor.tokenizer(sent_str, return_offsets_mapping=True, return_tensors="pt")
+    word_ids = enc.word_ids()
+    offsets = enc["offset_mapping"][0].tolist()
+    new_tokens_wids = {}
+    for wid in sorted(set(w for w in word_ids if w is not None)):
+        idxs = [i for i, w in enumerate(word_ids) if w == wid]
+        start = offsets[idxs[0]][0]
+        end = offsets[idxs[-1]][1]
+        form = sent_str[start:end]
+        wids = new_tokens_wids.get(form,[])
+        wids.append(wid)
+        new_tokens_wids[form] = wids
+    new_word_no = new_tokens_wids[target_token][target_no]
+    return new_word_no
+
+def make_predict_fn(token_index,extractor,classifier,test_data):
+    def predict(sentences):
+        enc = extractor.tokenizer(sentences[0], return_offsets_mapping=True, return_tensors="pt")
+        word_ids = enc.word_ids()
+        offsets = enc["offset_mapping"][0].tolist()
+        tokens = []
+        for wid in sorted(set(w for w in word_ids if w is not None)):
+            idxs = [i for i, w in enumerate(word_ids) if w == wid]
+            start = offsets[idxs[0]][0]
+            end = offsets[idxs[-1]][1]
+            form = sentences[0][start:end]
+            tokens.append(form)
+        wids = [str(word_no) for word_no, _ in enumerate(tokens)]
+        labels = ['NA' if word_no == token_index else '_' for word_no, _ in enumerate(tokens)]
+        dataset = extractor.build_dataset(wids,tokens,labels,'NFC')
+        vectors_test = extractor.extract_vectors(dataset)
+        features = [
+           ['transformer_embedding',{'feature_name':'Token','transformer_embeddings':vectors_test,'normalize':True}],
+           ]
+        test = test_data.copy()
+        test = TabularDatasets.add_features(test, features)
+        test.drop(columns=['ID','FORM','LEMMA'],inplace=True)
+        test_matrix = xgb.DMatrix(data=test,enable_categorical=True)
+        predictions = classifier.models[0].predict(test_matrix)
+        return predictions
+    return predict
+
+def build_test_data(word_no,tokens,new_word_no,lemmas,static_vectors,alignment_vectors,person_gazetteer,place_gazetteer):
+    test_data = []
+    test_data.append([new_word_no,tokens[0][word_no],lemmas[word_no]])
+    test_data = pd.DataFrame(test_data,columns=['ID','FORM','LEMMA'])
+    features = [
+       ['static_embedding',{'vector_file':static_vectors,'feature_name':'Type','fill_nas':None,'normalize':True}],
+       ['capital'],
+       ['static_embedding',{'vector_file':alignment_vectors,'feature_name':'Eng','fill_nas':None,'header':None,'normalize':True}],
+       ['gazetteer',{'gazetteer_file':person_gazetteer,'gazetteer_name':'Person'}],
+       ['gazetteer',{'gazetteer_file':place_gazetteer,'gazetteer_name':'Place'}],
+       ]
+    test_data = TabularDatasets.add_features(test_data, features)
+    return test_data
+
+def explain_prediction_context(word_no,tokens,extractor,classifier,lemmas,static_vectors,alignment_vectors,person_gazetteer,place_gazetteer):
+    new_word_no = get_index(word_no,tokens,extractor)
+    test_data = build_test_data(word_no,tokens,new_word_no,lemmas,static_vectors,alignment_vectors,person_gazetteer,place_gazetteer)
+    predict_fn = make_predict_fn(token_index=new_word_no,extractor=extractor,classifier=classifier,test_data=test_data)
+    explainer = shap.Explainer(predict_fn, extractor.tokenizer)
+    shap_values = explainer([ud.normalize('NFC',' '.join(tokens[0]))])
+    return shap_values
 
 def setup(tagger_path,lemmatizer_path,classifier_path,alignment_lexicon_path):
     tagger = Tagger(transformer_path='mercelisw/electra-grc',model_dir=tagger_path)

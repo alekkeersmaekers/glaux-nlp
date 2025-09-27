@@ -261,9 +261,10 @@ class Classifier:
         pretokenized = self.tokenizer.backend_tokenizer.pre_tokenizer.pre_tokenize_str(sent_str)
         new_tokens_wids = {}
         for word_no, w in enumerate(pretokenized):
-            wids = new_tokens_wids.get(w[0],[])
+            form = w[0].replace('Ġ','')
+            wids = new_tokens_wids.get(form,[])
             wids.append(word_no)
-            new_tokens_wids[w[0]] = wids
+            new_tokens_wids[form] = wids
         new_word_no = new_tokens_wids[target_token][target_no]
         subwords = [subword_no for subword_no, subword in enumerate(subword_ids) if subword == new_word_no]
         if last_subword:
