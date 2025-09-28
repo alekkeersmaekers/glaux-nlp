@@ -195,8 +195,8 @@ def make_predict_fn(token_index,extractor,classifier,test_data):
 
 def build_test_data(word_no,tokens,new_word_no,lemmas,static_vectors,alignment_vectors,person_gazetteer,place_gazetteer):
     test_data = []
-    test_data.append([new_word_no,tokens[0][word_no],lemmas[word_no]])
-    test_data = pd.DataFrame(test_data,columns=['ID','FORM','LEMMA'])
+    test_data.append([tokens[0][word_no],lemmas[word_no]])
+    test_data = pd.DataFrame(test_data,columns=['FORM','LEMMA'])
     features = [
        ['static_embedding',{'vector_file':static_vectors,'feature_name':'Type','fill_nas':None,'normalize':True}],
        ['capital'],

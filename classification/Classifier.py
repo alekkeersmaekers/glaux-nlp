@@ -283,16 +283,16 @@ class Classifier:
             return probs[:, token_index, :].cpu().numpy()
         return predict
     
-    def explain_prediction(self,wid,test_data,last_subword=True):
+    def explain_prediction(self,wid,test_data,last_subword=True,fixed_context=None):
         # I think it's better to make last_subword a parameter of classifier, will do that in a later stage
         sent_no, i = self.get_indices(wid,test_data,last_subword)
         predict_fn = self.make_predict_fn(token_index=i)
         explainer = shap.Explainer(predict_fn, self.tokenizer)
-        shap_values = explainer([' '.join(test_data[sent_no]['tokens'])])
+        explanation = explainer([' '.join(test_data[sent_no]['tokens'])],fixed_context=fixed_context)
         id2tag = self.config.id2label
         class_names = [id2tag[i] for i in range(len(id2tag))]
-        shap_values.output_names = class_names
-        return shap.plots.text(shap_values[0], display=False)
+        explanation.output_names = class_names
+        return explanation
 
 def compute_metrics(p: EvalPrediction):
     preds = p.predictions[0] if isinstance(p.predictions, tuple) else p.predictions
