@@ -279,8 +279,7 @@ class Classifier:
             with torch.no_grad():
                 outputs = self.classifier_model(**encodings)
                 logits = outputs.logits  # (batch, seq_len, num_labels)
-                probs = torch.nn.functional.softmax(logits, dim=-1)
-            return probs[:, token_index, :].cpu().numpy()
+            return logits[:, token_index, :].cpu().numpy()
         return predict
     
     def explain_prediction(self,wid,test_data,last_subword=True,fixed_context=None):

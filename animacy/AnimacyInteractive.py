@@ -13,6 +13,8 @@ from tagger.Tagger import Tagger
 from lemmatization.DictionaryLemmatizer import DictionaryLemmatizer
 from vectors.VectorExtractor import VectorExtractor
 import pickle
+import torch
+from sklearn import preprocessing
 
 def enter_sent():
     example_sentences = {
@@ -67,6 +69,7 @@ def analyze_sent(sent,tagger,lemmatizer,classifier,extractor,static_vectors,alig
            ['gazetteer',{'gazetteer_file':place_gazetteer,'gazetteer_name':'Place'}],
            ]
     classifier.test_data = TabularDatasets.add_features(classifier.test_data, features)
+    classifier.test_data.index = classifier.test_data['ID']
     test = classifier.test_data.copy()
     test.drop(columns=['ID','FORM','LEMMA'],inplace=True)
     test_matrix = xgb.DMatrix(data=test,enable_categorical=True)
@@ -74,8 +77,9 @@ def analyze_sent(sent,tagger,lemmatizer,classifier,extractor,static_vectors,alig
     label_encoder = classifier.label_encoders[0]
     classifier.set_predictions(label_encoder[predictions.astype(int)])
     results = pd.DataFrame(test_data,columns=['ID','FORM','LEMMA'])
-    results.drop(columns=['ID','LEMMA'],inplace=True)
+    results.index = results['ID']
     results['PREDICTION'] = results.index.map(classifier.predictions)
+    results.drop(columns=['ID','LEMMA'],inplace=True)
     explainer = shap.TreeExplainer(classifier.models[0])
     shap_values = explainer(test_matrix)
     if shap_values.feature_names is None:
@@ -90,12 +94,12 @@ def analyze_sent(sent,tagger,lemmatizer,classifier,extractor,static_vectors,alig
     else:
         return tokens, results, shap_values
 
-def get_prediction_graph_info(classifier,token_index,tokens):
-    type_vectors = classifier.training_data.iloc[:,5:305].copy()
+def get_prediction_graph_info(classifier,wid,tokens):
+    type_vectors = classifier.training_data.loc[:,[x for x in classifier.training_data.columns if 'Type' in x]].copy()
     type_vectors.index = classifier.training_data['LEMMA']
-    vector = pd.DataFrame(classifier.test_data.iloc[token_index,3:303].copy()).T
+    vector = pd.DataFrame(classifier.test_data.loc[wid,[x for x in classifier.test_data.columns if 'Type' in x]].copy()).T
     if not vector.isnull().values.any():
-        instance_lemma = classifier.test_data.iloc[token_index,2]
+        instance_lemma = classifier.test_data.loc[wid,'LEMMA']
         vector.index = [instance_lemma]
         type_vectors = pd.concat([type_vectors,vector])
         type_vectors.drop_duplicates(inplace=True)
@@ -107,7 +111,7 @@ def get_prediction_graph_info(classifier,token_index,tokens):
         type_feat_str = f"Similar to {','.join(closest.keys())}, ..."
     else:
         type_feat_str = f'This word is not recognized (probably it is infrequent)'
-    word_no = classifier.test_data.iloc[token_index,0]
+    word_no = classifier.test_data.loc[wid,'ID']
     context = []
     sent = tokens[0]
     if word_no-5 > 0:
@@ -126,17 +130,18 @@ def get_prediction_graph_info(classifier,token_index,tokens):
     token_str = ' '.join(context)
     return type_feat_str, token_str
 
-def explain_prediction(pred_class,classifier,shap_values,token_index,type_feat_str,token_str,alignment_lexicon,positive=True):
-    instance_lemma = classifier.test_data.iloc[token_index,2]
+def explain_prediction(pred_class,classifier,shap_values,wid,type_feat_str,token_str,alignment_lexicon,positive=True):
+    instance_lemma = classifier.test_data.loc[wid,'LEMMA']
     class_index = list(classifier.label_encoders[0]).index(pred_class)
-    shap_values.data[token_index,0] = type_feat_str
-    shap_values.data[token_index,1] = token_str
-    shap_values.data[token_index,3] = ', '.join(alignment_lexicon.get(instance_lemma,['No translation for the word available (probably it is infrequent)']))
-    fig = shap.plots.waterfall(shap_values[token_index,:,class_index],show=False)
+    word_no = classifier.test_data.index.get_loc(wid)
+    shap_values.data[word_no,0] = type_feat_str
+    shap_values.data[word_no,1] = token_str
+    shap_values.data[word_no,3] = ', '.join(alignment_lexicon.get(instance_lemma,['No translation for the word available (probably it is infrequent)']))
+    fig = shap.plots.waterfall(shap_values[word_no,:,class_index],show=False)
     if positive:
-        title = f"Why is {classifier.test_data.iloc[token_index,1]} predicted as '{pred_class}'?"
+        title = f"Why is {classifier.test_data.loc[wid,'FORM']} predicted as '{pred_class}'?"
     else:
-        title = f"Why is {classifier.test_data.iloc[token_index,1]} NOT predicted as '{pred_class}'?"
+        title = f"Why is {classifier.test_data.loc[wid,'FORM']} NOT predicted as '{pred_class}'?"
     plt.title(title)
     plt.show()
 
@@ -164,36 +169,9 @@ def get_index(word_no,tokens,extractor):
         wids.append(wid)
         new_tokens_wids[form] = wids
     new_word_no = new_tokens_wids[target_token][target_no]
-    return new_word_no
+    return new_word_no, enc
 
-def make_predict_fn(token_index,extractor,classifier,test_data):
-    def predict(sentences):
-        enc = extractor.tokenizer(sentences[0], return_offsets_mapping=True, return_tensors="pt")
-        word_ids = enc.word_ids()
-        offsets = enc["offset_mapping"][0].tolist()
-        tokens = []
-        for wid in sorted(set(w for w in word_ids if w is not None)):
-            idxs = [i for i, w in enumerate(word_ids) if w == wid]
-            start = offsets[idxs[0]][0]
-            end = offsets[idxs[-1]][1]
-            form = sentences[0][start:end]
-            tokens.append(form)
-        wids = [str(word_no) for word_no, _ in enumerate(tokens)]
-        labels = ['NA' if word_no == token_index else '_' for word_no, _ in enumerate(tokens)]
-        dataset = extractor.build_dataset(wids,tokens,labels,'NFC')
-        vectors_test = extractor.extract_vectors(dataset)
-        features = [
-           ['transformer_embedding',{'feature_name':'Token','transformer_embeddings':vectors_test,'normalize':True}],
-           ]
-        test = test_data.copy()
-        test = TabularDatasets.add_features(test, features)
-        test.drop(columns=['ID','FORM','LEMMA'],inplace=True)
-        test_matrix = xgb.DMatrix(data=test,enable_categorical=True)
-        predictions = classifier.models[0].predict(test_matrix)
-        return predictions
-    return predict
-
-def build_test_data(word_no,tokens,new_word_no,lemmas,static_vectors,alignment_vectors,person_gazetteer,place_gazetteer):
+def build_test_data(word_no,tokens,lemmas,static_vectors,alignment_vectors,person_gazetteer,place_gazetteer):
     test_data = []
     test_data.append([tokens[0][word_no],lemmas[word_no]])
     test_data = pd.DataFrame(test_data,columns=['FORM','LEMMA'])
@@ -207,12 +185,67 @@ def build_test_data(word_no,tokens,new_word_no,lemmas,static_vectors,alignment_v
     test_data = TabularDatasets.add_features(test_data, features)
     return test_data
 
+def make_predict_fn(token_index,extractor,classifier,test_data,enc):
+
+    word_ids = enc.word_ids(0)
+    offsets = enc["offset_mapping"][0]
+
+    word_to_subtokens = {}
+    for i, wid in enumerate(word_ids):
+        if wid is not None:
+            word_to_subtokens.setdefault(wid, []).append(i)
+
+    orig_columns = list(classifier.training_data.columns)[5:len(classifier.training_data.columns)]
+    transformer_cols = [c for c in orig_columns if 'Token' in c]
+    
+    def predict(sentences):
+
+        batch_embeddings = []
+        
+        sentences = sentences.tolist()
+        rows = []
+
+        enc = extractor.tokenizer(sentences, padding=True, truncation=True, return_tensors="pt").to(extractor.model.device)
+        
+        for sent_no, sent in enumerate(sentences):
+            input_ids = enc['input_ids'][sent_no].unsqueeze(0)
+            attention_mask = enc['attention_mask'][sent_no].unsqueeze(0)
+    
+            with torch.no_grad():
+                outputs = extractor.model(input_ids=input_ids,attention_mask=attention_mask,output_hidden_states=True)
+            hidden_states = outputs.hidden_states
+            kept_states = torch.stack([hidden_states[i] for i in extractor.layers])
+            embeddings = kept_states[:, 0, :, :].permute(1, 0, 2)
+            subtoken_ids = word_to_subtokens[token_index]
+            if extractor.layer_combination_method == 'concatenate':
+                target_embedding = embeddings[subtoken_ids, :, :].mean(dim=0).flatten().cpu().numpy()
+            else:
+                target_embedding = embeddings[subtoken_ids, :, :].mean(dim=0).sum(dim=0).cpu().numpy()
+            target_embedding = [round(val,3) for val in target_embedding]
+            target_embedding = preprocessing.normalize([target_embedding])[0]
+            row = test_data.copy()
+            transformer_df = pd.DataFrame([target_embedding], columns=transformer_cols)
+            row = pd.concat([row, transformer_df], axis=1)
+            rows.append(row)
+
+        test = pd.concat(rows, ignore_index=True)
+        test = test[orig_columns]
+        test_matrix = xgb.DMatrix(data=test,enable_categorical=True)
+        logits = classifier.models[0].predict(test_matrix, output_margin=True)
+        return logits
+    return predict
+
+def softmax(x):
+    e_x = np.exp(x - np.max(x, axis=1, keepdims=True))
+    return e_x / e_x.sum(axis=1, keepdims=True)
+
 def explain_prediction_context(word_no,tokens,extractor,classifier,lemmas,static_vectors,alignment_vectors,person_gazetteer,place_gazetteer):
-    new_word_no = get_index(word_no,tokens,extractor)
-    test_data = build_test_data(word_no,tokens,new_word_no,lemmas,static_vectors,alignment_vectors,person_gazetteer,place_gazetteer)
-    predict_fn = make_predict_fn(token_index=new_word_no,extractor=extractor,classifier=classifier,test_data=test_data)
-    explainer = shap.Explainer(predict_fn, extractor.tokenizer)
-    shap_values = explainer([ud.normalize('NFC',' '.join(tokens[0]))])
+    new_word_no, enc = get_index(word_no,tokens,extractor)
+    test_data = build_test_data(word_no,tokens,lemmas,static_vectors,alignment_vectors,person_gazetteer,place_gazetteer)
+    sent_str = ud.normalize('NFC',' '.join(tokens[0]))
+    predict_fn = make_predict_fn(token_index=new_word_no,extractor=extractor,classifier=classifier,test_data=test_data,enc=enc)
+    explainer = shap.Explainer(predict_fn, extractor.tokenizer,batch_size=64)
+    shap_values = explainer([sent_str])
     return shap_values
 
 def setup(tagger_path,lemmatizer_path,classifier_path,alignment_lexicon_path):
