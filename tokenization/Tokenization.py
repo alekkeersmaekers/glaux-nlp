@@ -69,7 +69,7 @@ def normalize_greek_accents(regularized: str):
     return regularized
 
 def normalize_greek_punctuation(word):
-    word = re.sub(r'[᾽\'ʼ\u0313´]', '’',word)
+    word = re.sub(r'[᾽\'ʼ´]', '’',word)
     word = re.sub(r'[‑—]', '—',word)
     word = re.sub('--', '—',word)
     word = re.sub(r'[“”„‘«»ʽ"]', '"',word)
