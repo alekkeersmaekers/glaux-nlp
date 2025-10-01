@@ -6,6 +6,8 @@ import shap
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.neural_network import MLPClassifier
+import torch
+from sklearn import preprocessing
 
 class TabularClassifier:
     
@@ -223,3 +225,119 @@ class TabularClassifier:
         fig = shap.plots.waterfall(all_shap_values[fold][token_index,:,class_index],show=False)
         plt.title(title)
         plt.show()
+        
+    def get_indices(self,wid,extractor,tokens,wids,numeric_as_string):
+        for sent_no, sent in enumerate(wids):
+            if wid in sent or (numeric_as_string==True and str(wid) in sent):
+                break
+        if numeric_as_string and str(wid) in sent:
+            i = sent.index(str(wid))
+        else:
+            i = sent.index(wid)
+        target_token = tokens[sent_no][i]
+        tokens_wids = {}
+        for token_no, token in enumerate(tokens[sent_no]):
+            tok_wids = tokens_wids.get(token,[])
+            tok_wids.append(wids[sent_no][token_no])
+            tokens_wids[token] = tok_wids
+        if numeric_as_string and str(wid) in tokens_wids[target_token]:
+            target_no = tokens_wids[target_token].index(str(wid))
+        else:
+            target_no = tokens_wids[target_token].index(wid)
+        sent_str = ' '.join(tokens[sent_no])
+        enc = extractor.tokenizer(sent_str, return_offsets_mapping=True, return_tensors="pt")
+        word_ids = enc.word_ids()
+        offsets = enc["offset_mapping"][0].tolist()
+        new_tokens_wids = {}
+        for wid in sorted(set(w for w in word_ids if w is not None)):
+            idxs = [i for i, w in enumerate(word_ids) if w == wid]
+            start = offsets[idxs[0]][0]
+            end = offsets[idxs[-1]][1]
+            form = sent_str[start:end]
+            tok_wids = new_tokens_wids.get(form,[])
+            tok_wids.append(wid)
+            new_tokens_wids[form] = tok_wids
+        new_word_no = new_tokens_wids[target_token][target_no]
+        return sent_no, new_word_no, enc
+    
+    def explain_prediction_context(self,wid,extractor,tokens,wids,wid_column='ID',transformer_column='Token',ignore_columns=[],numeric_as_string=False,normalize_embeddings=True):
+        sent_no, new_word_no, enc = self.get_indices(wid,extractor,tokens,wids,numeric_as_string)
+        test_row = self.test_data[self.test_data[wid_column]==wid]
+        test_row = test_row[[x for x in test_row if x != self.class_name and not x in ignore_columns]]
+        column_names = list(test_row.columns)
+        test_row = test_row[[x for x in test_row if not transformer_column in x]]
+        test_row.index = [0]
+        sent_str = ' '.join(tokens[sent_no])
+        predict_fn = self.make_predict_fn(token_index=new_word_no,extractor=extractor,test_data=test_row,enc=enc,column_names=column_names,transformer_column=transformer_column,normalize_embeddings=normalize_embeddings)
+        explainer = shap.Explainer(predict_fn, extractor.tokenizer,batch_size=64)
+        shap_values = explainer([sent_str])
+        return shap_values
+    
+    def make_predict_fn(self,token_index,extractor,test_data,enc,column_names,transformer_column,normalize_embeddings):
+        word_ids = enc.word_ids(0)
+        offsets = enc["offset_mapping"][0]   
+        word_to_subtokens = {}
+        for i, wid in enumerate(word_ids):
+            if wid is not None:
+                word_to_subtokens.setdefault(wid, []).append(i)    
+        transformer_cols = [c for c in column_names if transformer_column in c]
+        
+        def predict(sentences):
+            batch_embeddings = []
+            sentences = sentences.tolist()
+            rows = []
+            enc = extractor.tokenizer(sentences, padding=True, truncation=True, return_tensors="pt").to(extractor.model.device)
+            for sent_no, sent in enumerate(sentences):
+                input_ids = enc['input_ids'][sent_no].unsqueeze(0)
+                attention_mask = enc['attention_mask'][sent_no].unsqueeze(0)
+                with torch.no_grad():
+                    outputs = extractor.model(input_ids=input_ids,attention_mask=attention_mask,output_hidden_states=True)
+                hidden_states = outputs.hidden_states
+                kept_states = torch.stack([hidden_states[i] for i in extractor.layers])
+                embeddings = kept_states[:, 0, :, :].permute(1, 0, 2)
+                subtoken_ids = word_to_subtokens[token_index]
+                if extractor.subwords_combination_method == 'mean':
+                    word_embeddings = embeddings[subtoken_ids, :, :].mean(dim=0)
+                elif extractor.subwords_combination_method == 'first':
+                    word_embeddings = embeddings[subtoken_ids[0], :, :]
+                elif extractor.subwords_combination_method == 'last':
+                    word_embeddings = embeddings[subtoken_ids[-1], :, :]
+                if extractor.layer_combination_method == 'concatenate':
+                    target_embedding = word_embeddings.flatten().cpu().numpy()
+                else:
+                    target_embedding = word_embeddings.sum(dim=0).cpu().numpy()
+                if normalize_embeddings:
+                    target_embedding = preprocessing.normalize([target_embedding])[0]
+                row = test_data.copy()
+                transformer_df = pd.DataFrame([target_embedding], columns=transformer_cols)
+                row = pd.concat([row, transformer_df], axis=1)
+                rows.append(row)
+            test = pd.concat(rows, ignore_index=True)
+            test = test[column_names]
+            # Should give different options for the type of model, right now this only works for MLPClassifier
+            logits = self.mlp_compute_logits(self.models[0],test)
+            return logits
+        return predict
+    
+    def mlp_compute_logits(self, model, X):
+    # Apply hidden layers
+        activation = X
+        act_func = self.mlp_activation_func(model)
+        for i in range(len(model.coefs_) - 1):
+            activation = act_func(np.dot(activation, model.coefs_[i]) + model.intercepts_[i])
+    
+        # Output layer (linear, no softmax)
+        logits = np.dot(activation, model.coefs_[-1]) + model.intercepts_[-1]
+        return np.asarray(logits, dtype=np.float64)
+    
+    def mlp_activation_func(self, model):
+        if model.activation == "identity":
+            return lambda x: x
+        elif model.activation == "logistic":
+            return lambda x: 1.0 / (1.0 + np.exp(-x))
+        elif model.activation == "tanh":
+            return np.tanh
+        elif model.activation == "relu":
+            return lambda x: np.maximum(0, x)
+        else:
+            raise ValueError(f"Unsupported activation: {name}")
