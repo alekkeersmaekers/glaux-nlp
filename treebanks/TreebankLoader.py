@@ -12,6 +12,12 @@ class TreebankLoader():
         self.operations = operations
         self.wordid = wordid
         
+    def sent_str(self, sentence):
+        tokens_lst = []
+        for token in sentence['tokens']:
+            tokens_lst.append(token['form'])
+        return ' '.join(tokens_lst)
+        
     def set_heads(self,sentence):
         for token in sentence['tokens']:
             token['head'] = None
