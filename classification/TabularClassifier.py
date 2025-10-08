@@ -5,13 +5,62 @@ import xgboost as xgb
 import shap
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.neural_network import MLPClassifier
 import torch
 from sklearn import preprocessing
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+from tqdm import tqdm
+
+class MLPClassifier(nn.Module):
+    def __init__(self, input_dim, hidden_dims=(100,), output_dim=2, device=torch.device("cpu")):
+        super(MLPClassifier, self).__init__()
+        
+        layers = []
+        prev_dim = input_dim
+        for h in hidden_dims:
+            layers.append(nn.Linear(prev_dim, h))
+            layers.append(nn.ReLU())
+            prev_dim = h
+        layers.append(nn.Linear(prev_dim, output_dim))
+        
+        self.net = nn.Sequential(*layers)
+        self.device = device
+        self.to(device)
+    
+    def forward(self, x):
+        return self.net(x)
+
+    def train_mlp(self, X, y, epochs=200, batch_size=200, lr=0.001, weight_decay=0.0001):
+        
+        optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
+        criterion = nn.CrossEntropyLoss()
+        dataset = TensorDataset(torch.tensor(X, dtype=torch.float32),torch.tensor(y, dtype=torch.long))
+        loader = DataLoader(dataset, batch_size=min(batch_size, len(dataset)), shuffle=True)
+        self.train()
+        for epoch in tqdm(range(epochs)):
+            for xb, yb in loader:
+                xb, yb = xb.to(self.device), yb.to(self.device)
+                optimizer.zero_grad()
+                logits = self(xb)
+                loss = criterion(logits, yb)
+                loss.backward()
+                optimizer.step()
+
+    def predict(self, X, pred='prob'):
+        logits = self(torch.tensor(X, dtype=torch.float32).to(self.device)).cpu().detach()
+        if pred == 'logit':
+            return logits.numpy()
+        probs = torch.softmax(logits,dim=1)
+        if pred == 'prob':
+            return probs.numpy()
+        classes = torch.argmax(probs,axis=1)
+        if pred == 'class':
+            return classes.numpy()
 
 class TabularClassifier:
     
-    def __init__(self, features=None, td_file=None, td_format='tabular', test_file=None, test_format='tabular', normalize_columns=None, normalization='NFC', class_column=None, train_gpu=False):
+    def __init__(self, features=None, td_file=None, td_format='tabular', test_file=None, test_format='tabular', normalize_columns=None, normalization='NFC', class_column=None, train_gpu=False, model_type='mlp', ignore_columns=None):
         if td_file is not None:
             if td_format == 'tabular':
                 self.training_data = pd.read_csv(td_file, sep="\t", header=0, encoding="utf-8", quoting=3)
@@ -35,9 +84,13 @@ class TabularClassifier:
                 self.class_name = class_column
                 self.test_data = self.test_data.astype({class_column: "category"})
         self.train_gpu = train_gpu
+        self.model_type = model_type
+        if self.model_type == 'mlp':
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.ignore_columns = ignore_columns
     
-    def train(self,ignore_columns=None,shuffle_data=True,random_state=None,model_type='xgboost',model_params=None,xgboost_trees=10):
-        if model_type == 'xgboost':
+    def train(self,shuffle_data=True,random_state=None,model_params=None,xgboost_trees=10,mlp_layers=(100,)):
+        if self.model_type == 'xgboost':
             if model_params is None:
                 model_params = {}
                 model_params['objective'] = 'multi:softmax'
@@ -55,36 +108,39 @@ class TabularClassifier:
         train = self.training_data.copy()
         label = train[self.class_name].cat.codes
         label_encoder = train[self.class_name].cat.categories
-        if ignore_columns is not None:
-            train.drop(columns=ignore_columns,inplace=True)
+        if self.ignore_columns is not None:
+            train.drop(columns=self.ignore_columns,inplace=True)
         train.drop(columns=[self.class_name],inplace=True)
-        if model_type == 'xgboost':
+        if self.model_type == 'xgboost':
             if model_params['objective'] in ['multi:softmax','multi:softprob']:
                 model_params['num_class'] = len(label_encoder)
             train_matrix = xgb.DMatrix(data=train,label=label,enable_categorical=True)
             model = xgb.train(model_params,train_matrix,num_boost_round=xgboost_trees)
             if self.test_data is not None:
                 test = self.test_data.copy()
-                if ignore_columns is not None:
-                    test.drop(columns=ignore_columns,inplace=True)
+                if self.ignore_columns is not None:
+                    test.drop(columns=self.ignore_columns,inplace=True)
                 test.drop(columns=[self.class_name],inplace=True)
                 test_matrix = xgb.DMatrix(data=test,enable_categorical=True)
                 predictions = model.predict(test_matrix)
-        elif model_type == 'mlp':
-            model = MLPClassifier(random_state=random_state,**model_params).fit(train,label)
+        elif self.model_type == 'mlp':
+            if random_state is not None:
+                torch.manual_seed(random_state)
+            model = MLPClassifier(input_dim=len(train.columns),hidden_dims=mlp_layers,output_dim=len(label_encoder),device=self.device)
+            model.train_mlp(X=np.array(train.values, dtype=np.float32),y=np.array(label, dtype=np.int64),**model_params)
             if self.test_data is not None:
                 test = self.test_data.copy()
-                if ignore_columns is not None:
-                    test.drop(columns=ignore_columns,inplace=True)
+                if self.ignore_columns is not None:
+                    test.drop(columns=self.ignore_columns,inplace=True)
                 test.drop(columns=[self.class_name],inplace=True)
-                predictions = model.predict(test)
+                predictions = model.predict(X=np.array(test.values, dtype=np.float32),pred='class')
         if self.test_data is not None:
             self.set_predictions(label_encoder[predictions.astype(int)])
             print(f'Accuracy: {self.get_accuracy(self.test_data)}')
         self.models = [model]
         self.label_encoders = [label_encoder]
 
-    def train_and_test_nfold(self,ignore_columns=None,n=10,stratified=True,shuffle_data=True,random_state=None,model_type='xgboost',model_params=None,xgboost_trees=10):
+    def train_and_test_nfold(self,n=10,stratified=True,shuffle_data=True,random_state=None,model_type='xgboost',model_params=None,xgboost_trees=10):
         if model_type == 'xgboost':
             if model_params is None:
                 model_params = {}
@@ -114,9 +170,9 @@ class TabularClassifier:
             test = self.training_data.iloc[indices[1]].copy()
             label = train[self.class_name].cat.codes
             label_encoder = train[self.class_name].cat.categories
-            if ignore_columns is not None:
-                train.drop(columns=ignore_columns,inplace=True)
-                test.drop(columns=ignore_columns,inplace=True)
+            if self.ignore_columns is not None:
+                train.drop(columns=self.ignore_columns,inplace=True)
+                test.drop(columns=self.ignore_columns,inplace=True)
             train.drop(columns=[self.class_name],inplace=True)
             test.drop(columns=[self.class_name],inplace=True)
             if model_type == 'xgboost':
@@ -260,9 +316,42 @@ class TabularClassifier:
         new_word_no = new_tokens_wids[target_token][target_no]
         return sent_no, new_word_no, enc
     
-    def explain_prediction_context(self,wid,extractor,tokens,wids,wid_column='ID',transformer_column='Token',ignore_columns=[],numeric_as_string=False,normalize_embeddings=True):
+    def explain_prediction(self,wid=None,wid_column='ID',shap_sample=None):
+        # Not implemented for xgboost yet, but is very straightforward
+        if self.model_type == 'mlp':
+            train = self.training_data.copy()
+            if self.ignore_columns is not None:
+                train.drop(columns=self.ignore_columns,inplace=True)
+            train.drop(columns=[self.class_name],inplace=True)
+            if shap_sample is None:
+                explainer = shap.DeepExplainer(self.models[0],torch.tensor(np.array(train.values, dtype=np.float32), dtype=torch.float32).to(self.device))
+            else:
+                explainer = shap.DeepExplainer(self.models[0],torch.tensor(shap.sample(np.array(train.values, dtype=np.float32),shap_sample), dtype=torch.float32).to(self.device))
+            with torch.no_grad():
+                base_preds = self.models[0](torch.tensor(np.array(train.values, dtype=np.float32), dtype=torch.float32).to(self.device)).cpu().numpy()
+                base_values = base_preds.mean(axis=0)
+            if wid is None:
+                # If no wid specified, return shap values for everything
+                test = self.test_data.copy()
+            else:
+                test = self.test_data[self.test_data[wid_column]==wid].copy()
+            if self.ignore_columns is not None:
+                test.drop(columns=self.ignore_columns,inplace=True)
+            test.drop(columns=[self.class_name],inplace=True)
+            shap_values = explainer(torch.tensor(np.array(test.values,dtype=np.float32), dtype=torch.float32).to(self.device))
+            new_shap_values = shap.Explanation(
+                values=shap_values.values,
+                base_values= np.tile(base_values.reshape(1, -1), (shap_values.values.shape[0], 1)),
+                data=np.array(shap_values.data.cpu(),dtype=np.float32),
+                feature_names=list(train.columns),
+                output_names=shap_values.output_names
+            )
+            return new_shap_values
+    
+    def explain_prediction_context(self,wid,extractor,tokens,wids,wid_column='ID',transformer_column='Token',numeric_as_string=False,normalize_embeddings=True):
         sent_no, new_word_no, enc = self.get_indices(wid,extractor,tokens,wids,numeric_as_string)
         test_row = self.test_data[self.test_data[wid_column]==wid]
+        ignore_columns = [] if self.ignore_columns is None else self.ignore_columns
         test_row = test_row[[x for x in test_row if x != self.class_name and not x in ignore_columns]]
         column_names = list(test_row.columns)
         test_row = test_row[[x for x in test_row if not transformer_column in x]]
@@ -315,29 +404,6 @@ class TabularClassifier:
             test = pd.concat(rows, ignore_index=True)
             test = test[column_names]
             # Should give different options for the type of model, right now this only works for MLPClassifier
-            logits = self.mlp_compute_logits(self.models[0],test)
+            logits = self.models[0].predict(X=np.array(test.values, dtype=np.float32),pred='logit')
             return logits
         return predict
-    
-    def mlp_compute_logits(self, model, X):
-    # Apply hidden layers
-        activation = X
-        act_func = self.mlp_activation_func(model)
-        for i in range(len(model.coefs_) - 1):
-            activation = act_func(np.dot(activation, model.coefs_[i]) + model.intercepts_[i])
-    
-        # Output layer (linear, no softmax)
-        logits = np.dot(activation, model.coefs_[-1]) + model.intercepts_[-1]
-        return np.asarray(logits, dtype=np.float64)
-    
-    def mlp_activation_func(self, model):
-        if model.activation == "identity":
-            return lambda x: x
-        elif model.activation == "logistic":
-            return lambda x: 1.0 / (1.0 + np.exp(-x))
-        elif model.activation == "tanh":
-            return np.tanh
-        elif model.activation == "relu":
-            return lambda x: np.maximum(0, x)
-        else:
-            raise ValueError(f"Unsupported activation: {name}")
