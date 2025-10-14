@@ -229,6 +229,30 @@ class TabularClassifier:
         accuracy = sum(correct) / len(correct)
         return accuracy
     
+    def get_class_metrics(self):
+        class_metrics = {}
+        predictions = self.test_data.index.map(self.predictions)
+        for category in self.test_data[self.class_name].cat.categories:
+            metrics = {}
+            true_positives = ((self.test_data[self.class_name] == category) & (predictions == category)).sum()
+            false_positives = ((self.test_data[self.class_name] != category) & (predictions == category)).sum()
+            false_negatives = ((self.test_data[self.class_name] == category) & (predictions != category)).sum()
+            if true_positives + false_positives == 0:
+                precision = 0
+            else:
+                precision = true_positives / (true_positives + false_positives)
+            recall = true_positives / (true_positives + false_negatives)
+            if precision + recall == 0:
+                f1 = 0
+            else:
+                f1 = (2 * precision * recall) / (precision + recall)
+            metrics['precision'] = precision
+            metrics['recall'] = recall
+            metrics['f1'] = f1
+            metrics['N'] = true_positives + false_negatives
+            class_metrics[category] = metrics
+        return class_metrics
+    
     def get_shap_values_nfold(self):
         all_shap_values = []
         for fold_no, test_fold in enumerate(self.test_folds):
