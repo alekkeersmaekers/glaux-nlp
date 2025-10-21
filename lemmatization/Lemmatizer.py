@@ -91,14 +91,14 @@ class Lemmatizer:
         form_tag = tuple(form_tag)
         return form_tag
 
-    def lemmatize(self,data,return_possibilities=False):
+    def lemmatize(self,data,return_possibilities=False,beam_size=1):
 
         unknown_words = self.get_unknown_words(data)
         loaded_args, vocab = self.model.args, self.model.vocab
         batch = LemmaDataLoader(None, 50, loaded_args, vocab=vocab, evaluation=True,data=unknown_words)
         preds = []
         for i, b in enumerate(batch):
-            ps, _ = self.model.predict(b, 1)
+            ps, _ = self.model.predict(b, beam_size)
             preds += ps
     
         unknown_count = -1   
