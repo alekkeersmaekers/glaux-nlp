@@ -94,12 +94,19 @@ class Lemmatizer:
     def lemmatize(self,data,return_possibilities=False,beam_size=1):
 
         unknown_words = self.get_unknown_words(data)
+        unknown_words_forms = []
+        for unknown_word in unknown_words:
+            unknown_words_forms.append(unknown_word[0])
         loaded_args, vocab = self.model.args, self.model.vocab
         batch = LemmaDataLoader(None, 50, loaded_args, vocab=vocab, evaluation=True,data=unknown_words)
         preds = []
+        edits = []
         for i, b in enumerate(batch):
-            ps, _ = self.model.predict(b, beam_size)
+            ps, es = self.model.predict(b, beam_size)
             preds += ps
+            if es is not None:
+                edits += es
+        preds = self.model.postprocess(unknown_words_forms, preds, edits=edits)
     
         unknown_count = -1   
         all_lemmas = []
