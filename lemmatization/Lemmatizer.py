@@ -2,10 +2,11 @@ from collections import Counter
 from data.CONLLReader import CONLLReader
 from stanza.models.lemma.trainer import Trainer
 from lemmatization.LemmaDataLoader import LemmaDataLoader
+from tokenization.Tokenization import normalize_token
 
 class Lemmatizer:
     
-    def __init__(self,lexicon_file,model_file,training_data,test_data=None,data_preset='CONLLU',feature_cols=None,morph_features=None,pos_name='XPOS'):
+    def __init__(self,lexicon_file,model_file,training_data,test_data=None,data_preset='CONLLU',feature_cols=None,morph_features=None,pos_name='XPOS',normalization=None):
         self.pos_name = pos_name
         self.morph_features = morph_features
         if morph_features is None:
@@ -20,6 +21,7 @@ class Lemmatizer:
         self.add_counts(self.training_data)
         if test_data is not None:
             self.test_data = self.reader.parse_conll(test_data)
+        self.normalization = normalization
 
     def load_lemma_lexicon(self,file,return_features=False):
         lexicon = {}
@@ -54,7 +56,11 @@ class Lemmatizer:
         for sent in data:
             for word in sent:
                 lemma = word[self.reader.feature_cols['LEMMA']]
+                if lemma is None:
+                    lemma = '_'
                 form = word[self.reader.feature_cols['FORM']]
+                if self.normalization is not None:
+                    form = normalize_token(form,self.normalization)
                 pos = word[self.reader.feature_cols[self.pos_name]]
                 morph = word[self.reader.feature_cols['FEATS']]
                 form_tag = self.get_lexicon_key(form,pos,morph)
@@ -117,6 +123,8 @@ class Lemmatizer:
             sent_poss = []
             for word in sent:
                 form = word[self.reader.feature_cols['FORM']]
+                if self.normalization is not None:
+                    form = normalize_token(form,self.normalization)
                 pos = word[self.reader.feature_cols[self.pos_name]]
                 morph = word[self.reader.feature_cols['FEATS']]
                 form_tag = self.get_lexicon_key(form,pos,morph)
@@ -179,10 +187,14 @@ class Lemmatizer:
                 outfile.write('\n')
             for sent_no, sent in enumerate(self.test_data):
                 for word_no, word in enumerate(sent):
+                    feats_lst = []
+                    for k, v in word[self.reader.feature_cols['FEATS']].items():
+                        feats_lst.append(f'{k}={v}')
+                    feats_str = '|'.join(feats_lst)
                     if output_format == 'CONLLU':
-                        outfile.write(f"{word[self.reader.feature_cols['ID']]}\t{word[self.reader.feature_cols['FORM']]}\t{predicted_lemmas[sent_no][word_no]}\t{word[self.reader.feature_cols['UPOS']]}\t{word[self.reader.feature_cols['XPOS']]}\t{word[self.reader.feature_cols['FEATS']]}\t_\t_\t_\t_\n")
+                        outfile.write(f"{word[self.reader.feature_cols['ID']]}\t{word[self.reader.feature_cols['FORM']]}\t{predicted_lemmas[sent_no][word_no]}\t{word[self.reader.feature_cols['UPOS']]}\t{word[self.reader.feature_cols['XPOS']]}\t{feats_str}\t_\t_\t_\t_\n")
                     elif output_format == 'tab':
-                        outfile.write(f"{word[self.reader.feature_cols['ID']]}\t{word[self.reader.feature_cols['FORM']]}\t{word[self.reader.feature_cols[self.pos_name]]}\t{word[self.reader.feature_cols['FEATS']]}")
+                        outfile.write(f"{word[self.reader.feature_cols['ID']]}\t{word[self.reader.feature_cols['FORM']]}\t{word[self.reader.feature_cols[self.pos_name]]}\t{feats_str}")
                         if possibilities is not None:
                             poss = possibilities[sent_no][word_no]
                             outfile.write(f"\t{len(poss)}\t{'|'.join(poss)}")

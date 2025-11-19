@@ -483,6 +483,10 @@ class MorpheusProcessor:
             return '*phnelo/peia'
         elif lemma == '*mwush=s':
             return '*mwu+sh=s'
+        elif lemma == 'a)/gxistos' or lemma == 'a)/gxista':
+            return 'a)/gxi'
+        elif lemma == '*plataiai/':
+            return '$pla/taia'
         return lemma
     
     def find_word_class(self,word,stemtypes):
