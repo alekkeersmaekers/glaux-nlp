@@ -24,12 +24,17 @@ def strip_accents(s):
 
 class WordAligner:
     
-    def __init__(self, lexicon_file, vectors_name, large_corpus, training_data, gold_data, language_model, is_roberta=False,batch_size=100):
+    def __init__(self, lexicon_file, vectors_name, large_corpus, training_data, gold_data, language_model, is_roberta=False,batch_size=100,keep_large_corpus=False):
         self.lexicon = self.build_lexicon(lexicon_file)
         self.mwes = self.build_mwes()
         self.mwe_tokenizer = MWETokenizer(self.mwes)
         self.nlp = spacy.load("en_core_web_trf")
-        self.vectors = api.load(vectors_name)
+        vectors = api.load(vectors_name)
+        vectors_red = {}
+        for k in vectors.key_to_index.keys():
+            if k.startswith('/c/en/') or k.startswith('/c/grc/'):
+                vectors_red[k] = vectors[k]
+        self.vectors = vectors_red
         if is_roberta:
             self.extractor = VectorExtractor(transformer_path=language_model,tokenizer_add_prefix_space=True,layers=[8])
         else:
@@ -53,6 +58,8 @@ class WordAligner:
         self.vectors_en_gold, self.vectors_grc_gold = self.get_bilingual_embeddings(self.sentences_gold, batch_size=batch_size)
         self.vectors_cosines = {}
         self.lexicon_cosines = {}
+        if not keep_large_corpus:
+            self.sentences_large = None
     
     def build_lexicon(self,lexicon_file):
         lexicon = {}
