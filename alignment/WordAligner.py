@@ -1,33 +1,58 @@
-from nltk.corpus import wordnet as wn
-from nltk.tokenize import word_tokenize, MWETokenizer
-from nltk.corpus import stopwords
-from tqdm import tqdm
-import re
-from spacy.tokens import Doc
-from gensim.models.phrases import Phrases, ENGLISH_CONNECTOR_WORDS
 import unicodedata as ud
+from nltk.corpus import wordnet as wn
+import spacy
+from gensim.models.phrases import Phrases, ENGLISH_CONNECTOR_WORDS
+from nltk.tokenize import MWETokenizer
 import math
-import string
+from vectors.VectorExtractor import VectorExtractor
+import numpy as np
 import gensim.downloader as api
-import numpy
-from tokenization.Tokenization import strip_accents
-import pandas as pd
-import random
 from lightgbm import LGBMRanker
+import pandas as pd
+from string import punctuation
+from alignment.Datasets import build_dataset
+from alignment.Scorer import Scorer
+from tqdm import tqdm
+import random
+
+def is_punct(token):
+    return token in punctuation or token == '·' or token == ';' or token == '·'
+
+def strip_accents(s):
+    return ''.join(c for c in ud.normalize('NFD', s)
+                  if ud.category(c) != 'Mn')
 
 class WordAligner:
     
-    def __init__(self, lexicon_file, vectors_name):
+    def __init__(self, lexicon_file, vectors_name, large_corpus, training_data, gold_data, language_model, is_roberta=False,batch_size=100):
         self.lexicon = self.build_lexicon(lexicon_file)
-        self.mwe_tokenizer = MWETokenizer(self.build_mwes())
-        self.stop_words = self.build_stopwords()
+        self.mwes = self.build_mwes()
+        self.mwe_tokenizer = MWETokenizer(self.mwes)
+        self.nlp = spacy.load("en_core_web_trf")
+        self.vectors = api.load(vectors_name)
+        if is_roberta:
+            self.extractor = VectorExtractor(transformer_path=language_model,tokenizer_add_prefix_space=True,layers=[8])
+        else:
+            self.extractor = VectorExtractor(transformer_path=language_model,tokenizer_add_prefix_space=False,layers=[8])
+        self.sentences_large = build_dataset(**large_corpus,nlp=self.nlp)
+        self.sentences_train = build_dataset(**training_data,nlp=self.nlp)
+        self.sentences_gold = build_dataset(**gold_data,nlp=self.nlp)
+        self.build_phrases(corpora=[self.sentences_large,self.sentences_train,self.sentences_gold])
+        self.phrase_analyze(self.sentences_large)
+        self.phrase_analyze(self.sentences_train)
+        self.phrase_analyze(self.sentences_gold)
         self.total_sent_count = 0
         self.grc_lemmas_sent = {}
         self.en_lemmas_sent = {}
         self.grc_en_sent = {}
-        self.vectors = api.load(vectors_name)
-        self.lexicon_cosines = {}
+        self.get_sent_list_freqs(self.sentences_large)
+        self.get_sent_list_freqs(self.sentences_train)
+        self.get_sent_list_freqs(self.sentences_gold)
+        self.grc_en_pmis = self.get_pmis()
+        self.vectors_en_td, self.vectors_grc_td = self.get_bilingual_embeddings(self.sentences_train, batch_size=batch_size)
+        self.vectors_en_gold, self.vectors_grc_gold = self.get_bilingual_embeddings(self.sentences_gold, batch_size=batch_size)
         self.vectors_cosines = {}
+        self.lexicon_cosines = {}
     
     def build_lexicon(self,lexicon_file):
         lexicon = {}
@@ -40,7 +65,7 @@ class WordAligner:
                     translations[n] = translation.lower().replace(' ','_')
                 lexicon[ud.normalize('NFD',sl[0])] = set(translations)
         return lexicon
-    
+
     def build_mwes(self):
         mwes = list()
         wordnet_lemmas = set(i for i in wn.words())
@@ -52,79 +77,53 @@ class WordAligner:
                 if ' ' in translation:
                     mwes.append(translation.split(' '))
         return mwes
-    
-    def build_stopwords(self):
-        stop_words = set(stopwords.words('english'))
-        stop_words.add('may')
-        stop_words.add('might')
-        stop_words.add('shall')
-        stop_words.add('would')
-        stop_words.add('must')
-        stop_words.add('also')
-        stop_words.add('yet')
-        stop_words.add('could')
-        stop_words.add('let')
-        stop_words.add('us')
-        stop_words.add('begin')
-        return stop_words
-    
-    def analyze_eng_sentences(self, sentences, nlp, mwe_tokenizer=None, phrase_model=None, phrase_analyze=True, is_tokenized=False, strip_punctuation=False, linguistic_analysis=True):
-        documents = []
-        sentence_ids = []
-        if linguistic_analysis:
-            for id, sentence in tqdm(sentences.items(),desc='Tokenizing sentences'):
-                sentence_ids.append(id)
-                sent = sentence['en_sent']
-                if not is_tokenized:
-                    tokenized = word_tokenize(sent)
-                else:
-                    tokenized = sent
-                tokenized_cleaned = []
-                for word in tokenized:
-                    if strip_punctuation:
-                        word = word.replace('.','')
-                        word = word.replace('\'','')
-                    if '—' in word or '-' in word:
-                        word_s = re.split('([—-])',word)
-                        for s in word_s:
-                            if (not ((s == '—' or s == '-') and strip_punctuation)) and s != '':
-                                tokenized_cleaned.append(s)
-                    else:
-                        tokenized_cleaned.append(word)
-                if strip_punctuation:
-                    tokenized_cleaned = [str for str in tokenized_cleaned if str not in string.punctuation and str != '``' and str!='\'\'' and str !='“' and str!='”' and str!='’' and str!='‘' and str != '...' and str!='—']
-                sentence['tokenized'] = tokenized_cleaned
-                documents.append(Doc(nlp.vocab, words=tokenized_cleaned))
-            analysis = tqdm(nlp.pipe(documents), total=len(documents), desc='Analyzing sentences')
-            for index, doc in enumerate(analysis):
-                pos_tagged_sent = []
-                lemmatized_sent = []
-                for word in doc:
-                    pos = word.pos_
-                    if word.tag_ == 'VBG' or word.tag_ == 'VBN':
-                        pos = 'PTCP'
-                    pos_tagged_sent.append(pos)
-                    if word.lemma_ is None:
-                        word.lemma_ = word.text
-                    lemmatized_sent.append(word.lemma_.lower())
-                sentences[sentence_ids[index]]['pos_tagged'] = pos_tagged_sent
-                sentences[sentence_ids[index]]['lemmatized'] = lemmatized_sent
-        if phrase_analyze:
-            for sentence in tqdm(sentences.values(), desc='Phrase analysis'):
-                mwe_tokenized = mwe_tokenizer.tokenize(sentence['lemmatized'])
-                phrase_tokenized = phrase_model[sentence['lemmatized']]
-                sentence['mwe_tokenized'] = mwe_tokenized
-                sentence['phrase_tokenized'] = phrase_tokenized
-        
-    def get_lemma_phrases(self,sentences):
+
+    def build_phrases(self,corpora):
         lemma_data = []
-        for sent in sentences.values():
-            lemmas = sent['lemmatized']
-            lemma_data.append(lemmas)
-        phrase_model = Phrases(lemma_data, connector_words=ENGLISH_CONNECTOR_WORDS,scoring='npmi',threshold=0.2)
-        phrase_model = phrase_model.freeze()
-        return phrase_model
-    
+        for corpus in corpora:
+            for sent in corpus:
+                en_tokens = sent['en_tokens']
+                lemmas = []
+                for token in en_tokens:
+                    lemmas.append(token.lemma_.lower())
+                lemma_data.append(lemmas)
+        connector_words = list(ENGLISH_CONNECTOR_WORDS)
+        connector_words.append('-')
+        connector_words.append("'")
+        connector_words.append("’")
+        connector_words = frozenset(connector_words)
+        self.phrase_model = Phrases(lemma_data, connector_words=connector_words,scoring='npmi',threshold=0.2)
+        self.phrase_model = self.phrase_model.freeze()
+
+    def phrase_analyze(self,sentences):
+        for sentence in tqdm(sentences, desc='Phrase analysis'):
+            lemmas = []
+            for word in sentence['en_tokens']:
+                lemmas.append(word.lemma_.lower())
+            mwe_tokenized = self.mwe_tokenizer.tokenize(lemmas)
+            phrase_tokenized = self.phrase_model[lemmas]
+            sentence['mwe_tokenized'] = mwe_tokenized
+            sentence['phrase_tokenized'] = phrase_tokenized
+
+    def get_sent_list_freqs(self,sentences):
+        for sent_no, sent in tqdm(enumerate(sentences),desc='Counting frequencies',total=len(sentences)):
+            self.total_sent_count += 1
+            en_tokens = sent['en_tokens']
+            mwe_tokenized = sent['mwe_tokenized']
+            phrase_tokenized = sent['phrase_tokenized']
+            grc_lemma_sent = sent['grc_lemmas']
+            grc_lemmas = set(grc_lemma_sent)
+            en_lemmas = set()
+            for token in en_tokens:
+                en_lemmas.add(token.lemma_.lower())
+            for lemma in mwe_tokenized:
+                if '_' in lemma:
+                    en_lemmas.add(lemma)
+            for lemma in phrase_tokenized:
+                if '_' in lemma:
+                    en_lemmas.add(lemma)
+            self.add_counts(grc_lemmas,en_lemmas)
+
     def add_counts(self, grc_lemmas,en_lemmas):
         for grc_lemma in grc_lemmas:
             sent_count = 0
@@ -148,94 +147,78 @@ class WordAligner:
                 sent_count = self.en_lemmas_sent[en_lemma]
             sent_count += 1
             self.en_lemmas_sent[en_lemma] = sent_count
-    
-    def get_database_freqs(self,rows,en_sentences):
-        currentSent = ''
-        en_lemmas = set()
-        grc_lemmas = set()
-        for row in tqdm(rows,desc='Counting frequencies'):
-            sent = row['sentence_id']
-            if currentSent == sent:
-                grc_lemmas.add(row['lemma_string'])
-            else:
-                self.total_sent_count += 1
-                self.add_counts(grc_lemmas,en_lemmas)
-                en_lemmas.clear()
-                grc_lemmas.clear()
-                en_sent = en_sentences[sent]
-                lemmatized_sentence = en_sent['lemmatized']
-                mwe_tokenized = en_sent['mwe_tokenized']
-                phrase_tokenized = en_sent['phrase_tokenized']
-                for word in lemmatized_sentence:
-                    en_lemmas.add(word)
-                for word in mwe_tokenized:
-                    if '_' in word:
-                        en_lemmas.add(word)
-                for word in phrase_tokenized:
-                    if '_' in word:
-                        en_lemmas.add(word)
-            currentSent = sent
-        self.add_counts(grc_lemmas,en_lemmas)
-    
-    def get_sent_list_freqs(self,lemmas,sentences):
-        for sent_no, sent in tqdm(enumerate(sentences),desc='Counting frequencies',total=len(sentences)):
-            lemmatized_sentence = sent['lemmatized']
-            mwe_tokenized = sent['mwe_tokenized']
-            phrase_tokenized = sent['phrase_tokenized']
-            grc_lemma_sent = lemmas[sent_no]
-            grc_lemmas = set(grc_lemma_sent)
-            en_lemmas = set(lemmatized_sentence)
-            for lemma in mwe_tokenized:
-                if '_' in lemma:
-                    en_lemmas.add(lemma)
-            for lemma in phrase_tokenized:
-                if '_' in lemma:
-                    en_lemmas.add(lemma)
-            self.add_counts(grc_lemmas,en_lemmas)
-    
-    def get_file_freqs(self,file,greek_lemma_list,sentences):
-        lemma_count = -1
-        sent_id = 0
-        with open(file,encoding='utf8') as infile:
-            lines = infile.readlines()
-            for line in tqdm(lines,desc='Counting frequencies'):
-                sl = line.strip().split('\t')
-                if len(sl)==3:
-                    sent_id += 1
-                    self.total_sent_count +=1
-                    grc = sl[0].split(' ')
-                    sent = sentences[sent_id]
-                    lemmatized_sentence = sent['lemmatized']
-                    mwe_tokenized = sent['mwe_tokenized']
-                    phrase_tokenized = sent['phrase_tokenized']
-                    grc_lemmas = set()
-                    for word in grc:
-                        lemma_count +=1
-                        grc_lemmas.add(greek_lemma_list[lemma_count])
-                    en_lemmas = set()
-                    for lemma in lemmatized_sentence:
-                        en_lemmas.add(lemma)
-                    for lemma in mwe_tokenized:
-                        if '_' in lemma:
-                            en_lemmas.add(lemma)
-                    for lemma in phrase_tokenized:
-                        if '_' in lemma:
-                            en_lemmas.add(lemma)
-                    self.add_counts(grc_lemmas,en_lemmas)
-    
-    def get_pmis(self):        
+
+    def get_pmis(self,alpha=0.75):        
         grc_en_pmis = dict()
         for grc, ens in tqdm(self.grc_en_sent.items(),desc='Calculating pmis'):
             grc_count = self.grc_lemmas_sent[grc]
             en_pmis = dict()
             for en, observed in ens.items():
-                expected = ((grc_count/self.total_sent_count) * pow(self.en_lemmas_sent[en]/self.total_sent_count,0.75))
+                expected = ((grc_count/self.total_sent_count) * pow(self.en_lemmas_sent[en]/self.total_sent_count,alpha))
                 en_pmis[en] = math.log((observed/self.total_sent_count)/expected,2)
-                #expected = (grc_count * en_lemmas_sent[en])/total_sent_count
-                #en_pmis[en] = math.log(observed/expected,2)
             grc_en_pmis[grc] = en_pmis
         return grc_en_pmis
+
+    def get_bilingual_embeddings(self, sentences, batch_size=100):
+        en_tokenized = []
+        en_ids = []
+        grc_tokenized = []
+        grc_ids = []
+        en_index = 0
+        grc_index = 0
+        for sent in sentences:
+            en_split = []
+            for token in sent['en_tokens']:
+                en_split.append(token.text)
+            grc_split = sent['grc']
+            en_tokenized.append(en_split)
+            grc_tokenized.append(grc_split)
+            en_id = list(range(en_index,en_index+len(en_split)))
+            en_id = [str(x) for x in en_id]
+            sent['en_ids'] = en_id
+            en_ids.append(en_id)
+            grc_id = list(range(grc_index,grc_index+len(grc_split)))
+            grc_id = [str(x) for x in grc_id]
+            sent['grc_ids'] = grc_id
+            grc_ids.append(grc_id)
+            en_index += len(en_split)
+            grc_index += len(grc_split)
+        dataset = self.extractor.build_dataset(en_ids,en_tokenized,batched=True,batch_size=batch_size)
+        vectors_en = self.extractor.extract_vectors(dataset)
+        dataset = self.extractor.build_dataset(grc_ids,grc_tokenized,batched=True,batch_size=batch_size)
+        vectors_grc = self.extractor.extract_vectors(dataset)
+        vectors_en = {k: np.round(v,3).astype(np.float16) for k, v in vectors_en.items()}
+        vectors_grc = {k: np.round(v,3).astype(np.float16) for k, v in vectors_grc.items()}
+        return vectors_en, vectors_grc
     
+    def get_positions(self,sentence):
+        positions = {}
+        count = -1
+        for word_no, word in enumerate(sentence):
+            if not is_punct(word):
+                count+= 1
+                positions[word_no] = count
+            else:
+                positions[word_no] = count
+        sent_length = count + 1
+        return positions, sent_length
+
+    def get_cosine_lexicon(self,grc,en):
+        if grc+'_'+en in self.lexicon_cosines:
+            return self.lexicon_cosines[grc+'_'+en]
+        best_cosine = 0
+        en_vector_str = '/c/en/'+en
+        if en_vector_str in self.vectors and grc in self.lexicon:
+            entries = self.lexicon[grc]
+            for entry in entries:
+                entry_vector_str = '/c/en/'+entry
+                if entry_vector_str in self.vectors:
+                    cosine = np.dot(self.vectors[en_vector_str], self.vectors[entry_vector_str])/(np.linalg.norm(self.vectors[en_vector_str])* np.linalg.norm(self.vectors[entry_vector_str]))
+                    if cosine > best_cosine:
+                        best_cosine = cosine
+        self.lexicon_cosines[grc+'_'+en] = best_cosine
+        return best_cosine
+
     def get_en_pos_multiword(self,postags):
         scores = {'VERB':1,'PROPN':2,'NOUN':3,'INTJ':3,'PRON':4,'PTCP':5,'ADJ':5,'NUM':5,'ADV':6,'ADP':7,'SCONJ':7,'DET':8,'CCONJ':8,'X':8,'PART':8,'PUNCT':8,'SYM':8,'AUX':8,'':1000}
         best_postag = ''
@@ -250,273 +233,280 @@ class WordAligner:
                 best_postag = pos
                 best_score = scores[pos]
         return best_postag
-    
-    def get_phrase_indices(self,mwe_tokenized,phrase_tokenized):
-        phrase_indices = []
-        i = -1
-        for word in mwe_tokenized:
-            i+=1
-            n_words = word.count('_') + 1
-            if n_words > 1:
-                indices = list(range(i,i+n_words))
-                phrase_indices.append(indices)
-                i += (n_words-1)
-        i = -1
-        for word in phrase_tokenized:
-            i+=1
-            n_words = word.count('_') + 1
-            if n_words > 1:
-                indices = list(range(i,i+n_words))
-                if not indices in phrase_indices:
-                    phrase_indices.append(indices)
-                i += (n_words-1)
-        return phrase_indices
-    
-    def realign_indices(self,simple_tokenized):
-        indices_map = {}
-        current_index = -1
-        for old_index, word in enumerate(simple_tokenized):
-            current_index +=1
-            indices = [current_index]
-            if '’s' in word or '’t' in word or word == 'cannot':
-                current_index +=1
-                indices.append(current_index)
-            elif '—' in word or '-' in word:
-                word_s = re.split('([—-])',word)
-                for s in word_s[1:len(word_s)]:
-                    if not (s == '—' or s == '-' or s==''):
-                        current_index +=1
-                        indices.append(current_index)
-            elif word == '':
-                current_index-=1
-            indices_map[old_index] = indices
-        return indices_map
-    
-    def get_cosine_lexicon(self,grc,en):
-        if grc+'_'+en in self.lexicon_cosines:
-            return self.lexicon_cosines[grc+'_'+en]
-        best_cosine = 0
-        en_vector_str = '/c/en/'+en
-        if en_vector_str in self.vectors and grc in self.lexicon:
-            entries = self.lexicon[grc]
-            for entry in entries:
-                entry_vector_str = '/c/en/'+entry
-                if entry_vector_str in self.vectors:
-                    cosine = numpy.dot(self.vectors[en_vector_str], self.vectors[entry_vector_str])/(numpy.linalg.norm(self.vectors[en_vector_str])* numpy.linalg.norm(self.vectors[entry_vector_str]))
-                    if cosine > best_cosine:
-                        best_cosine = cosine
-        self.lexicon_cosines[grc+'_'+en] = best_cosine
-        return best_cosine
-    
-    def sentence_alignment_test_data(self,sentence,grc_sent,grc_lemmas,grc_postags):
-        prediction_data = []
-        # Note: make sure that punctuation etc is already stripped from the Greek sentence, otherwise positions won't match
-        group_index = 0
-        group_indices = []
-        phrase_indices = self.get_phrase_indices(sentence['mwe_tokenized'],sentence['phrase_tokenized'])
-        possibilities = []
-        for en_index, en_word in enumerate(sentence['lemmatized']):
-            possibilities.append([en_index])
-        possibilities.extend(phrase_indices)
-        for index, grc_lemma in enumerate(grc_lemmas):
-            if len(grc_lemmas)>1:
-                grc_loc = index / (len(grc_lemmas)-1)
-            else:
-                grc_loc = 0
-            pmis = {}
-            if grc_lemma in self.grc_en_pmis:
-                pmis = self.grc_en_pmis[grc_lemma]
-            en_freqs = {}
-            if grc_lemma in self.grc_en_sent:
-                en_freqs = self.grc_en_sent[grc_lemma]
-            grc_freq = 0
-            if grc_lemma in self.grc_lemmas_sent:
-                grc_freq = self.grc_lemmas_sent[grc_lemma]
-            group_index += 1
-            group_indices.append(group_index)
-            grc_postag = grc_postags[index]
-            for possibility in possibilities:
-                if len(sentence['tokenized'])>1:
-                    en_loc = ((possibility[0] + possibility[len(possibility)-1]) / 2) / (len(sentence['tokenized'])-1)
-                else:
-                    en_loc = 0
-                pos_diff = abs(grc_loc-en_loc)
-                en_words = []
-                en_words_original = []
-                en_postags = []
-                for index in possibility:
-                    en_words.append(sentence['lemmatized'][index])
-                    if len(sentence['lemmatized']) != len(sentence['tokenized']):
-                        print(sentence['lemmatized'])
-                        print(sentence['tokenized'])
-                    en_words_original.append(sentence['tokenized'][index])
-                    en_postags.append(sentence['pos_tagged'][index])
-                en_words_str = '_'.join(en_words)
-                en_postag = ''
-                if len(en_postags) == 1:
-                    en_postag = en_postags[0]
-                else:
-                    en_postag = self.get_en_pos_multiword(en_postags)
-                pmi = 0
-                if en_words_str in pmis:
-                    pmi = pmis[en_words_str]
-                rel_freq = 0.0
-                if en_words_str in en_freqs:
-                    rel_freq = en_freqs[en_words_str] / grc_freq
-                in_lexicon = False
-                if grc_lemma in self.lexicon:
-                    in_lexicon = en_words_str in self.lexicon[grc_lemma]
-                cosine = 0
-                grc_stripped = (strip_accents(grc_lemma).replace('ς','σ')).lower()
-                if grc_stripped + '_' + en_words_str in self.vectors_cosines:
-                    cosine = self.vectors_cosines[grc_stripped + '_' + en_words_str]
-                elif '/c/grc/'+grc_stripped in self.vectors and '/c/en/'+en_words_str in self.vectors:
-                    cosine = numpy.dot(self.vectors['/c/grc/'+grc_stripped], self.vectors['/c/en/'+en_words_str])/(numpy.linalg.norm(self.vectors['/c/grc/'+grc_stripped])* numpy.linalg.norm(self.vectors['/c/en/'+en_words_str]))
-                self.vectors_cosines[grc_stripped + '_' + en_words_str] = cosine
-                cosine_lexicon = self.get_cosine_lexicon(grc_lemma,en_words_str)
-                is_phrase = len(en_words) > 1
-                if not en_postag == ':' and not en_postag=='(' and not en_postag==')':
-                    prediction_data.append([group_index,grc_lemma,' '.join(en_words_original),' '.join(en_words),','.join(map(str,possibility)),pmi,rel_freq,pos_diff,in_lexicon,cosine,grc_postag,en_postag,cosine_lexicon,is_phrase])
-        prediction_data_pd = pd.DataFrame(prediction_data,columns=['GROUP','GRC','EN','EN_LEMMA','INDICES','PMI','RELFREQ','POSITION','LEXICON','COSINE','GRCPOS','ENPOS','COSINE_LEXICON','IS_PHRASE'])
-        prediction_data_pd = prediction_data_pd.astype({"GRCPOS": "category", "ENPOS": "category"})
-        return prediction_data_pd, group_indices
-    
-    def alignment_data_from_file(self,file,sentences,grc_lemmas_list,grc_pos_list):
-        sent_no = 0
-        dataset = []
-        groups = []
-        lemma_index = -1
-        group_index = 0
-        with open(file,'r',encoding='utf8') as infile:
-            lines = infile.readlines()
-            for line in tqdm(lines,desc='Creating alignment dataset'):
-                sl = line.strip().split('\t')
-                if len(sl)==3:
-                    sent_no += 1
-                    grc = sl[0].split(' ')
-                    en_sent = sentences[sent_no]
-                    tokenized_simple = en_sent['en_sent'].split(' ')
-                    for index, word in enumerate(tokenized_simple):
-                        tokenized_simple[index] = re.sub(r'[\.,“!”‘:\?;\(\)]','',word)
-                    indices_new = self.realign_indices(tokenized_simple)
-                    tokenized = en_sent['tokenized']
-                    mwe_tokenized = en_sent['mwe_tokenized']
-                    phrase_tokenized = en_sent['phrase_tokenized']
-                    lemmatized_sentence = en_sent['lemmatized']
-                    pos_tagged = en_sent['pos_tagged']
-                    alignments = sl[2].split(' ')
-                    grc_en = dict()
-                    for alignment in alignments:
-                        al_s = alignment.replace('P','').split('-')
-                        grc_index = int(al_s[0])
-                        en_index = int(al_s[1])
-                        en_indices_realigned = indices_new[en_index]
-                        en_indices = []
-                        if grc_index in grc_en:
-                            en_indices = grc_en[grc_index]
-                        en_indices.extend(en_indices_realigned)
-                        grc_en[grc_index] = en_indices
-                    phrase_indices = self.get_phrase_indices(mwe_tokenized,phrase_tokenized)
-                    grc_lemmas = []
-                    grc_pos = []
-                    for grc_index, word in enumerate(grc):
-                        lemma_index +=1
-                        grc_lemmas.append(grc_lemmas_list[lemma_index])
-                        grc_pos.append(grc_pos_list[lemma_index])
-                    for grc_index, word in enumerate(grc):
-                        if grc_index in grc_en and grc_lemmas[grc_index] in self.grc_lemmas_sent:
-                            en_indices = grc_en[grc_index]
-                            valid = True
-                            if len(en_indices) > 1:
-                                if not en_indices in phrase_indices:
-                                    stopwords = []
-                                    i = -1
-                                    while(True):
-                                        i+=1
-                                        if i==len(en_indices):
-                                            break
-                                        elif not lemmatized_sentence[en_indices[i]] in self.stop_words:
-                                            break
-                                        else:
-                                            stopwords.append(en_indices[i])
-                                    i = len(en_indices)
-                                    while(True):
-                                        i-=1
-                                        if i==-1:
-                                            break
-                                        elif not lemmatized_sentence[en_indices[i]] in self.stop_words:
-                                            break
-                                        else:
-                                            stopwords.append(en_indices[i])
-                                    en_no_stopwords = [i for i in en_indices if not i in stopwords]
-                                    if len(en_no_stopwords) == 1 or en_no_stopwords in phrase_indices:
-                                        en_indices = en_no_stopwords
-                                    else:
-                                        valid = False
-                            if valid:
-                                group_index += 1
-                                groups.append(group_index)
-                                grc_lemma = grc_lemmas[grc_index]
-                                grc_postag = grc_pos[grc_index]
-                                grc_loc = grc_index / (len(grc)-1)
-                                pmis = self.grc_en_pmis[grc_lemma]
-                                en_freqs = self.grc_en_sent[grc_lemma]
-                                grc_freq = self.grc_lemmas_sent[grc_lemma]
-                                possibilities = []
-                                for en_index, en_word in enumerate(tokenized):
-                                    possibilities.append([en_index])
-                                possibilities.extend(phrase_indices)
-                                for possibility in possibilities:
-                                    aligned = 0
-                                    if possibility == en_indices:
-                                        aligned = 1
-                                    en_loc = ((possibility[0] + possibility[len(possibility)-1]) / 2) / (len(tokenized)-1)
-                                    pos_diff = abs(grc_loc-en_loc)
-                                    en_words = []
-                                    en_postags = []
-                                    for index in possibility:
-                                        if index >= len(lemmatized_sentence):
-                                            print(index)
-                                            print(indices_new)
-                                            print(grc_en)
-                                            print(lemmatized_sentence)
-                                            print(tokenized_simple)
-                                            print(en_sent['en_sent'])
-                                        en_words.append(lemmatized_sentence[index])
-                                        en_postags.append(pos_tagged[index])
-                                    en_postag = ''
-                                    if len(en_postags) == 1:
-                                        en_postag = en_postags[0]
-                                    else:
-                                        en_postag = self.get_en_pos_multiword(en_postags)
-                                    en_words_str = '_'.join(en_words)
-                                    pmi = 0
-                                    if en_words_str in pmis:
-                                        pmi = pmis[en_words_str]
-                                    rel_freq = 0.0
-                                    if en_words_str in en_freqs:
-                                        rel_freq = en_freqs[en_words_str] / grc_freq
-                                    in_lexicon = False
-                                    if grc_lemma in self.lexicon:
-                                        in_lexicon = en_words_str in self.lexicon[grc_lemma]
-                                    cosine = 0
-                                    grc_stripped = (strip_accents(grc_lemma).replace('ς','σ')).lower()
-                                    if grc_stripped + '_' + en_words_str in self.vectors_cosines:
-                                        cosine = self.vectors_cosines[grc_stripped + '_' + en_words_str]
-                                    elif '/c/grc/'+grc_stripped in self.vectors and '/c/en/'+en_words_str in self.vectors:
-                                        cosine = numpy.dot(self.vectors['/c/grc/'+grc_stripped], self.vectors['/c/en/'+en_words_str])/(numpy.linalg.norm(self.vectors['/c/grc/'+grc_stripped])* numpy.linalg.norm(self.vectors['/c/en/'+en_words_str]))
-                                    self.vectors_cosines[grc_stripped + '_' + en_words_str] = cosine
-                                    cosine_lexicon = self.get_cosine_lexicon(grc_lemma,en_words_str)
-                                    is_phrase = len(en_words) > 1
-                                    dataset.append([group_index,grc_lemma,en_words_str,','.join(map(str,possibility)),aligned,pmi,rel_freq,pos_diff,in_lexicon,cosine,grc_postag,en_postag,cosine_lexicon,is_phrase])
-        pd_dataset = pd.DataFrame(dataset,columns=['GROUP','GRC','EN','INDICES','ALIGNED','PMI','RELFREQ','POSITION','LEXICON','COSINE','GRCPOS','ENPOS','COSINE_LEXICON','IS_PHRASE'])
-        pd_dataset = pd_dataset.astype({"GRCPOS": "category", "ENPOS": "category"})
-        return pd_dataset, groups
-    
+
     def get_group_size(self,data):
         return data.reset_index().groupby("GROUP")['GROUP'].count()
     
-    def train_model(self,data,train_test_split,train_size=0.9,seed=None):
+    def build_wa_dataset(self,sentences,vectors_grc,vectors_en,has_gold_alignment=True,use_phrase_model=True,add_phrase_candidates=True):
+        group_rows = {}
+        gold_alignments = {}
+        gold_alignments_tokens = {}
+        data = []
+        row_index = -1
+        for sent_no, sent in tqdm(enumerate(sentences),total=len(sentences)):
+            candidates = []
+            candidates_all = []
+            if use_phrase_model:
+                word_candidates, phrase_candidates = self.get_candidates(sent,self.mwes,self.phrase_model.phrasegrams,use_phrase_model)
+                candidates.extend(word_candidates)
+                if add_phrase_candidates:
+                    candidates.extend(phrase_candidates)
+                candidates_all.extend(word_candidates)
+                candidates_all.extend(phrase_candidates)
+            else:
+                candidates = self.get_candidates(sent,None,None,use_phrase_model)
+                candidates_all = candidates
+            ignore_candidates = []
+            if len(candidates) > 0:
+                sent_ids_grc = sent['grc_ids']
+                sent_ids_eng = sent['en_ids']
+                grc_matrix = []
+                en_matrix = []
+                for wid in sent_ids_grc:
+                    if wid in vectors_grc:
+                        # Unfortunately, the UGARIT tokenizer sometimes makes splits that exceed the subword limit - these tokens will be ignored (see below)
+                        grc_matrix.append(vectors_grc[wid])
+                for candidate in candidates_all:
+                    valid = True
+                    vecs = []
+                    for index in candidate:
+                        # Also, very occasionally an English candidate needs to be ignored because of the UGARIT tokenizer
+                        if sent_ids_eng[index] in vectors_en:
+                            vecs.append(vectors_en[sent_ids_eng[index]])
+                        else:
+                            valid = False
+                    if valid:
+                        vecs = np.array(vecs)
+                        vector = np.mean(vecs,axis=0)
+                        en_matrix.append(vector)
+                    else:
+                        ignore_candidates.append(candidate)
+                grc_matrix = np.array(grc_matrix)
+                en_matrix = np.array(en_matrix)
+                dotproducts = np.dot(grc_matrix, en_matrix.T)
+                grc_norms = np.linalg.norm(grc_matrix, axis=1, keepdims=True)
+                en_norms = np.linalg.norm(en_matrix, axis=1, keepdims=True)
+                cosine_similarities = dotproducts / (grc_norms @ en_norms.T)
+                cosine_index = []
+                for candidate in candidates_all:
+                    if not candidate in ignore_candidates:
+                        cosine_index.append(candidate)
+                grc_lemmas = sent['grc_lemmas']
+                grc_tags = None
+                if 'grc_pos' in sent:
+                    grc_tags = sent['grc_pos']
+                grc_words = sent['grc']
+                en_tokens = sent['en_tokens']
+                alignments = None
+                if has_gold_alignment:
+                    alignments = sent['alignment']
+                grc_positions, grc_length = self.get_positions(grc_words)
+                en_words = []
+                for word in en_tokens:
+                    en_words.append(word.text)
+                en_positions, en_length = self.get_positions(en_words)
+                for grc_no, grc_token in enumerate(grc_words):
+                    grc_id = int(sent_ids_grc[grc_no])
+                    if not is_punct(grc_token) and str(grc_id) in vectors_grc:
+                        # The word is ignored if the sentence exceeds the subword limit (see also above)
+                        grc_lemma = grc_lemmas[grc_no]
+                        grc_pos = None
+                        if grc_tags is not None:
+                            grc_pos = grc_tags[grc_no]
+                        if alignments is not None:
+                            alignment = alignments.get(grc_no,[])
+                        pmis = self.grc_en_pmis.get(grc_lemma,{})
+                        grc_en_freqs = self.grc_en_sent.get(grc_lemma,{})
+                        grc_freq = self.grc_lemmas_sent.get(grc_lemma,0)
+                        #grc_loc = grc_no / (len(grc_words)-1)
+                        grc_loc = 0
+                        if grc_length > 1:
+                            grc_loc = grc_positions[grc_no] / (grc_length-1)
+                        if has_gold_alignment:
+                            gold_alignments[grc_id] = alignment
+                            gold_alignment_tokens = []
+                            for index in alignment:
+                                gold_alignment_tokens.append(en_tokens[index].text)
+                            gold_alignments_tokens[grc_id] = ' '.join(gold_alignment_tokens)
+                        for candidate in candidates:
+                            # Again, ignored because of tokenizer limits
+                            if not candidate in ignore_candidates:
+            #                    en_loc = ((candidate[0]+candidate[len(candidate)-1])/2) / (len(en_tokens)-1)
+                                en_loc = 0
+                                if en_length > 1:
+                                    en_loc = ((en_positions[candidate[0]] + en_positions[candidate[len(candidate)-1]]) / 2) / (en_length-1)
+                                pos_diff = abs(grc_loc-en_loc)
+                                candidate_en_tokens = []
+                                candidate_en_lemmas = []
+                                candidate_en_postags = []
+                                for index in candidate:
+                                    candidate_en_tokens.append(en_tokens[index].text)
+                                    candidate_en_lemmas.append(en_tokens[index].lemma_.lower())
+                                    candidate_en_postags.append(en_tokens[index].pos_)
+                                if len(candidate_en_postags) == 1:
+                                    en_postag = candidate_en_postags[0]
+                                else:
+                                    en_postag = self.get_en_pos_multiword(candidate_en_postags)
+                                candidate_en_lemmas_str = '_'.join(candidate_en_lemmas)
+                                if has_gold_alignment:
+                                    match = 0
+                                    if add_phrase_candidates:
+                                        if candidate == alignment:
+                                            match = 1
+                                    else:
+                                        if candidate[0] in alignment:
+                                            match = 1
+                                cosine = cosine_similarities[grc_no][cosine_index.index(candidate)]
+                                pmi = pmis.get(candidate_en_lemmas_str,None)
+                                if use_phrase_model and not add_phrase_candidates and pmi is not None:
+                                    for candidate in phrase_candidates:
+                                        phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                        phrase_pmi = pmis.get(phrase_candidate_en_lemmas_str,0)
+                                        if phrase_pmi > pmi:
+                                            pmi = phrase_pmi
+                                rel_freq = 0
+                                if grc_freq > 0:
+                                    rel_freq = grc_en_freqs.get(candidate_en_lemmas_str,0) / grc_freq
+                                    if use_phrase_model and not add_phrase_candidates:
+                                        for candidate in phrase_candidates:
+                                            phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                            phrase_rel_freq = grc_en_freqs.get(phrase_candidate_en_lemmas_str,0) / grc_freq
+                                            if phrase_rel_freq > rel_freq:
+                                                rel_freq = phrase_rel_freq
+                                rel_freq_en = 0
+                                en_freq = self.en_lemmas_sent.get(candidate_en_lemmas_str,0)
+                                if en_freq > 0:
+                                    rel_freq_en = grc_en_freqs.get(candidate_en_lemmas_str,0) / en_freq
+                                    if use_phrase_model and not add_phrase_candidates:
+                                        for candidate in phrase_candidates:
+                                            phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                            phrase_rel_freq = grc_en_freqs.get(phrase_candidate_en_lemmas_str,0) / en_freq
+                                            if phrase_rel_freq > rel_freq_en:
+                                                rel_freq_en = phrase_rel_freq
+                                grc_stripped = (strip_accents(grc_lemma).replace('ς','σ')).lower()
+                                cosine_static = None
+                                if grc_stripped + '_' + candidate_en_lemmas_str.replace('_-','') in self.vectors_cosines:
+                                    cosine_static = self.vectors_cosines[grc_stripped + '_' + candidate_en_lemmas_str.replace('_-','')]
+                                elif '/c/grc/'+grc_stripped in self.vectors and '/c/en/'+candidate_en_lemmas_str.replace('_-','') in self.vectors:
+                                    cosine_static = np.dot(self.vectors['/c/grc/'+grc_stripped], self.vectors['/c/en/'+candidate_en_lemmas_str.replace('_-','')])/(np.linalg.norm(self.vectors['/c/grc/'+grc_stripped])* np.linalg.norm(self.vectors['/c/en/'+candidate_en_lemmas_str.replace('_-','')]))
+                                    self.vectors_cosines[grc_stripped + '_' + candidate_en_lemmas_str.replace('_-','')] = cosine_static
+                                if cosine_static is not None and use_phrase_model and not add_phrase_candidates:
+                                    for candidate in phrase_candidates:
+                                        phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                        if grc_stripped + '_' + phrase_candidate_en_lemmas_str.replace('_-','') in self.vectors_cosines:
+                                            phrase_cosine_static = self.vectors_cosines[grc_stripped + '_' + phrase_candidate_en_lemmas_str.replace('_-','')]
+                                        elif '/c/grc/'+grc_stripped in self.vectors and '/c/en/'+phrase_candidate_en_lemmas_str.replace('_-','') in self.vectors:
+                                            phrase_cosine_static = np.dot(self.vectors['/c/grc/'+grc_stripped], self.vectors['/c/en/'+phrase_candidate_en_lemmas_str.replace('_-','')])/(np.linalg.norm(self.vectors['/c/grc/'+grc_stripped])* np.linalg.norm(self.vectors['/c/en/'+phrase_candidate_en_lemmas_str.replace('_-','')]))
+                                            self.vectors_cosines[grc_stripped + '_' + phrase_candidate_en_lemmas_str.replace('_-','')] = phrase_cosine_static
+                                            if phrase_cosine_static > cosine_static:
+                                                cosine_static = phrase_cosine_static
+                                in_lexicon = False
+                                if grc_lemma in self.lexicon:
+                                    in_lexicon = candidate_en_lemmas_str.replace('_-','') in self.lexicon[grc_lemma]
+                                    if not in_lexicon and use_phrase_model and not add_phrase_candidates:
+                                        for candidate in phrase_candidates:
+                                            phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                            phrase_in_lexicon = phrase_candidate_en_lemmas_str.replace('_-','') in self.lexicon[grc_lemma]
+                                            if phrase_in_lexicon:
+                                                in_lexicon = True
+                                                break
+                                cosine_lexicon = self.get_cosine_lexicon(grc_lemma,candidate_en_lemmas_str.replace('_-',''))
+                                if use_phrase_model and not add_phrase_candidates:
+                                    for candidate in phrase_candidates:
+                                        phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                        phrase_cosine_lexicon = self.get_cosine_lexicon(grc_lemma,phrase_candidate_en_lemmas_str.replace('_-',''))
+                                        if phrase_cosine_lexicon > cosine_lexicon:
+                                            cosine_lexicon = phrase_cosine_lexicon
+                                is_phrase = len(candidate) > 1
+                                if has_gold_alignment:
+                                    if add_phrase_candidates:
+                                        data.append([grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate,match,cosine,pmi,rel_freq,pos_diff,in_lexicon,cosine_static,cosine_lexicon,is_phrase])
+                                    else:
+                                        data.append([grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate,match,cosine,pmi,rel_freq,pos_diff,in_lexicon,cosine_static,cosine_lexicon])
+    #                                data.append([grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate,match,cosine,pmi,rel_freq,rel_freq_en,pos_diff,in_lexicon,cosine_static,cosine_lexicon,is_phrase])
+                                else:
+                                    if add_phrase_candidates:
+                                        data.append([grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate,cosine,pmi,rel_freq,pos_diff,in_lexicon,cosine_static,cosine_lexicon,is_phrase])
+                                    else:
+                                        data.append([grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate,match,cosine,pmi,rel_freq,pos_diff,in_lexicon,cosine_static,cosine_lexicon])
+    #                                data.append([grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate,cosine,pmi,rel_freq,rel_freq_en,pos_diff,in_lexicon,cosine_static,cosine_lexicon,is_phrase])
+                                row_index += 1
+                                if grc_id in group_rows:
+                                    group_rows[grc_id][1] = row_index
+                                else:
+                                    group_rows[grc_id] = [row_index,row_index]
+            #                    data.append([group_index,grc_token,' '.join(candidate_en_tokens),candidate,match,cosine,pmi,rel_freq,pos_diff,in_lexicon,cosine_static,cosine_lexicon,is_phrase,grc_pos,en_postag])
+        if has_gold_alignment:
+            return data, group_rows, gold_alignments, gold_alignments_tokens
+        else:
+            return data, group_rows
+        
+    def train(self,evaluate=True,ignore_features=None,build_datasets=False):
+        if (not hasattr(self,'training_data')) or build_datasets:
+            self.training_data, self.td_group_rows, self.td_alignments, self.td_alignments_tokens = self.build_wa_dataset(self.sentences_train,self.vectors_grc_td,self.vectors_en_td,use_phrase_model=True,add_phrase_candidates=True)
+        train = pd.DataFrame(self.training_data,columns=['GROUP','SENT','GRC','EN','GRC_INDEX','EN_INDICES','ALIGNED','COSINE','PMI','REL_FREQ','POS_DIFF','IN_LEXICON','COSINE_STATIC','COSINE_LEXICON','IS_PHRASE'])
+        if ignore_features is not None:
+            train.drop(columns=ignore_features,inplace=True)
+        self.model = self.train_model(train,False,seed=12345,n_estimators=300)
+        if evaluate:
+            if (not hasattr(self,'gold_data')) or build_datasets:
+                self.gold_data, self.gold_group_rows, self.gold_alignments, self.gold_alignments_tokens = self.build_wa_dataset(self.sentences_gold,self.vectors_grc_gold,self.vectors_en_gold,use_phrase_model=True,add_phrase_candidates=True)
+            gold = pd.DataFrame(self.gold_data,columns=['GROUP','SENT','GRC','EN','GRC_INDEX','EN_INDICES','ALIGNED','COSINE','PMI','REL_FREQ','POS_DIFF','IN_LEXICON','COSINE_STATIC','COSINE_LEXICON','IS_PHRASE'])
+            if ignore_features is not None:
+                gold.drop(columns=ignore_features,inplace=True)
+            predictions = np.array(self.model.predict(gold.copy().drop(columns=['GROUP','SENT','GRC','EN','GRC_INDEX','EN_INDICES','ALIGNED'])))
+            results = []
+            groups = np.array(gold['GROUP'])
+            sentnos = np.array(gold['SENT'])
+            grc = np.array(gold['GRC'])
+            en = np.array(gold['EN'])
+            grc_indices = np.array(gold['GRC_INDEX'])
+            alignments = np.array(gold['EN_INDICES'])
+            aligned = np.array(gold['ALIGNED'])
+            group_nos = list(gold['GROUP'].unique())
+            for group in group_nos:
+                indices = np.where(groups == group)[0]
+                candidates = predictions[indices[0]:indices[len(indices)-1]+1]
+                candidates_sents = sentnos[indices[0]:indices[len(indices)-1]+1]
+                candidates_grc_indices = grc_indices[indices[0]:indices[len(indices)-1]+1]
+                candidates_alignments = alignments[indices[0]:indices[len(indices)-1]+1]
+                candidates_aligned = aligned[indices[0]:indices[len(indices)-1]+1]
+                candidates_grc = grc[indices[0]:indices[len(indices)-1]+1]
+                candidates_en = en[indices[0]:indices[len(indices)-1]+1]
+                best_candidate = np.argmax(candidates)
+                gold_alignment = self.gold_alignments[group]
+                gold_alignment_tokens = self.gold_alignments_tokens[group]
+                no_alignment = len(gold_alignment) == 0
+                results.append([group,candidates_sents[best_candidate],candidates[best_candidate],candidates_grc_indices[best_candidate],candidates_alignments[best_candidate],candidates_aligned[best_candidate],candidates_grc[best_candidate],candidates_en[best_candidate],no_alignment,gold_alignment,gold_alignment_tokens])
+            self.results = results
+            self.results_df = pd.DataFrame(results,columns=['GROUP','SENT','SCORE','GRC_INDEX','BEST_CANDIDATE','CORRECT','GREEK','EN','UNALIGNED','GOLD','GOLD_TOKENS'])
+            scores_unaligned = sorted(list(self.results_df['SCORE'][self.results_df['UNALIGNED']==True]),reverse=True)
+            best_threshold = None
+            best_accuracy = 0
+            best_correct = 0
+            scorer = Scorer(self.results,self.sentences_gold)
+            for threshold in scores_unaligned:
+                accuracy, correct, total = scorer.get_accuracy(threshold)
+                if accuracy >= best_accuracy:
+                    best_accuracy = accuracy
+                    best_threshold = threshold
+                    best_correct = correct
+            self.threshold = best_threshold
+            match1 = (self.results_df['SCORE']<self.threshold)&(self.results_df['UNALIGNED']==True)
+            match2 = (self.results_df['SCORE']<self.threshold)&(self.results_df['UNALIGNED']==False)
+            self.results_df.loc[match1, 'CORRECT'] = 1
+            self.results_df.loc[match2, 'CORRECT'] = 0
+            print(f'Accuracy: {best_accuracy}')
+            print(f'N correct: {best_correct}')
+            print(f'N total: {total}')
+            print(f'Best threshold: {best_threshold}')
+            precision, recall, f1, aer = scorer.get_standard_metrics(best_threshold)
+            print(f'Precision: {precision}')
+            print(f'Recall: {recall}')
+            print(f'F1: {f1}')
+            print(f'AER: {aer}')
+        
+    def train_model(self,data,train_test_split,train_size=0.9,seed=None,n_estimators=500):
         groups = list(set(data['GROUP']))
         if train_test_split:
             if seed is not None:
@@ -531,37 +521,102 @@ class WordAligner:
         else:
             train_instances = data.copy()
             train_groups = self.get_group_size(data)
-        model = LGBMRanker(objective="lambdarank",n_estimators=500,random_state=seed)
-        model.fit(train_instances.drop(columns=['GROUP','GRC','EN','INDICES','ALIGNED']),train_instances['ALIGNED'],group=train_groups)
+        model = LGBMRanker(objective="lambdarank",n_estimators=n_estimators,random_state=seed)
+        model.fit(train_instances.drop(columns=['GROUP','SENT','GRC','EN','GRC_INDEX','EN_INDICES','ALIGNED']),train_instances['ALIGNED'],group=train_groups)
         if train_test_split:
             test_instances = self.make_predictions(model,test_instances)
             return model, test_instances
         else:
             return model
-    
-    def make_predictions(self,model,test_data,has_gold=True):
-        if has_gold:
-            predictions = model.predict(test_data.drop(columns=['GROUP','GRC','EN','INDICES','ALIGNED']))
+
+    def get_candidates(self,sentence,mwes,phrases,use_phrase_model=True):
+        word_candidates = []
+        phrase_candidates = []
+        for token_no, token in enumerate(sentence['en_tokens']):
+            if not is_punct(token.text):
+                word_candidates.append([token_no])
+        if use_phrase_model:
+            i = -1
+            for token in sentence['mwe_tokenized']:
+                i += 1
+                n_words = token.count('_') + 1
+                if token == '_':
+                    n_words = 1
+                if n_words > 1:
+                    indices = list(range(i,i+n_words))
+                    phrase_candidates.append(indices)
+                    i += (n_words-1)
+            i = -1
+            for token in sentence['phrase_tokenized']:
+                i+=1
+                n_words = token.count('_') + 1
+                if token == '_':
+                    n_words = 1
+                if n_words > 1:
+                    indices = list(range(i,i+n_words))
+                    if not indices in phrase_candidates:
+                        phrase_candidates.append(indices)
+                    i += (n_words-1)
+            token_list = list(sentence['en_tokens'])
+            for token_no, token in enumerate(sentence['en_tokens']):
+                if (token.dep_ == 'advmod' or token.dep_ == 'prt') and (token.head.pos_ == 'VERB' or token.head.pos_ == 'AUX') and token_list.index(token.head) < token_list.index(token):
+                    expr = []
+                    expr.append(token.head.lemma_.lower())
+                    expr.append(token.lemma_.lower())
+                    if expr in mwes or '_'.join(expr) in phrases.keys():
+                        indices = []
+                        indices.append(token_list.index(token.head))
+                        indices.append(token_list.index(token))
+                        if not indices in phrase_candidates:
+                            phrase_candidates.append(indices)
+                elif token.dep_ == 'acomp' and token.head.pos_ == 'AUX':
+                    expr = []
+                    expr.append(token.head.lemma_.lower())
+                    expr.append(token.lemma_.lower())
+                    if expr in mwes or '_'.join(expr) in phrases.keys():
+                        indices = []
+                        indices.append(token_list.index(token.head))
+                        indices.append(token_list.index(token))
+                        indices.sort()
+                        if not indices in phrase_candidates:
+                            phrase_candidates.append(indices)
+                elif token.dep_ == 'pobj' and token.head.dep_ == 'prep' and (token.head.head.pos_ == 'VERB' or token.head.head.pos_ == 'AUX'):
+                    expr = []
+                    expr.append(token.head.head.lemma_.lower())
+                    expr.append(token.head.lemma_.lower())
+                    expr.append(token.lemma_.lower())
+                    if expr in mwes or '_'.join(expr) in phrases.keys():
+                        indices = []
+                        indices.append(token_list.index(token.head.head))
+                        indices.append(token_list.index(token.head))
+                        indices.append(token_list.index(token))
+                        indices.sort()
+                        if not indices in phrase_candidates:
+                            phrase_candidates.append(indices)
+                elif token.dep_ == 'oprd' and (token.head.pos_ == 'VERB' or token.head.pos_ == 'AUX'):
+                    expr = []
+                    expr.append(token.head.lemma_.lower())
+                    expr.append(token.lemma_.lower())
+                    if expr in mwes or '_'.join(expr) in phrases.keys():
+                        indices = []
+                        indices.append(token_list.index(token.head))
+                        indices.append(token_list.index(token))
+                        indices.sort()
+                        if not indices in phrase_candidates:
+                            phrase_candidates.append(indices)
+                elif (token.dep_ == 'dobj' or token.dep_ == 'ccomp' or token.dep_ == 'nsubjpass') and (token.head.pos_ == 'VERB'):
+                    expr = []
+                    expr.append(token.head.lemma_.lower())
+                    expr.append(token.lemma_.lower())
+                    if expr in mwes or '_'.join(expr) in phrases.keys():
+                        indices = []
+                        indices.append(token_list.index(token.head))
+                        indices.append(token_list.index(token))
+                        indices.sort()
+                        if not indices in phrase_candidates:
+        #                    print(f'{expr}\t{sentence['eng']}')
+                            phrase_candidates.append(indices)
+        if use_phrase_model:
+            return word_candidates, phrase_candidates
         else:
-            predictions = model.predict(test_data.drop(columns=['GROUP','GRC','EN','INDICES']))
-        test_data['PRED'] = predictions
-        return test_data
-        
-    def score_predictions(self,test_data,group_indices,score_threshold=None,evaluate_accuracy=False):
-        final_results = []
-        for group in tqdm(group_indices,desc='Scoring predictions'):
-            group_predictions = test_data[test_data['GROUP']==group]
-            if len(group_predictions) > 0:
-                best_prediction = group_predictions.loc[group_predictions['PRED'].idxmax()]
-                best_score = best_prediction['PRED']
-                if score_threshold is None or best_score >= score_threshold:
-                    row = [best_prediction['GROUP'],best_prediction['GRC'],best_prediction['EN'],best_prediction['INDICES'],best_score]
-                    if evaluate_accuracy:
-                        row.append(best_prediction['ALIGNED'])
-                    final_results.append(row)
-        if evaluate_accuracy:
-            final_results = pd.DataFrame(final_results,columns=['GROUP','GRC','EN','INDICES','SCORE','ALIGNED'])
-            print(final_results[final_results['ALIGNED']==1].shape[0] / final_results.shape[0])
-        else:
-            final_results = pd.DataFrame(final_results,columns=['GROUP','GRC','EN','INDICES','SCORE'])
-        return final_results
+            return word_candidates
