@@ -23,22 +23,20 @@ def strip_accents(s):
                   if ud.category(c) != 'Mn')
 
 class WordAligner:
-    
-    def __init__(self, lexicon_file, vectors_name, large_corpus, training_data, gold_data, language_model, is_roberta=False,batch_size=100,keep_large_corpus=False):
+
+    def __init__(self, lexicon_file, vectors_name, large_corpus, training_data, gold_data, features=['COSINE','PMI','REL_FREQ','POS_DIFF','IN_LEXICON','COSINE_STATIC','COSINE_LEXICON','IS_PHRASE'], language_model=None, is_roberta=False,batch_size=100,keep_large_corpus=False):
         self.lexicon = self.build_lexicon(lexicon_file)
         self.mwes = self.build_mwes()
         self.mwe_tokenizer = MWETokenizer(self.mwes)
         self.nlp = spacy.load("en_core_web_trf")
-        vectors = api.load(vectors_name)
-        vectors_red = {}
-        for k in vectors.key_to_index.keys():
-            if k.startswith('/c/en/') or k.startswith('/c/grc/'):
-                vectors_red[k] = vectors[k]
-        self.vectors = vectors_red
-        if is_roberta:
-            self.extractor = VectorExtractor(transformer_path=language_model,tokenizer_add_prefix_space=True,layers=[8])
-        else:
-            self.extractor = VectorExtractor(transformer_path=language_model,tokenizer_add_prefix_space=False,layers=[8])
+        self.features = features
+        if 'COSINE_STATIC' in self.features or 'COSINE_LEXICON' in self.features:
+            vectors = api.load(vectors_name)
+            vectors_red = {}
+            for k in vectors.key_to_index.keys():
+                if k.startswith('/c/en/') or k.startswith('/c/grc/'):
+                    vectors_red[k] = vectors[k]
+            self.vectors = vectors_red
         self.sentences_large = build_dataset(**large_corpus,nlp=self.nlp)
         self.sentences_train = build_dataset(**training_data,nlp=self.nlp)
         self.sentences_gold = build_dataset(**gold_data,nlp=self.nlp)
@@ -46,18 +44,29 @@ class WordAligner:
         self.phrase_analyze(self.sentences_large)
         self.phrase_analyze(self.sentences_train)
         self.phrase_analyze(self.sentences_gold)
-        self.total_sent_count = 0
-        self.grc_lemmas_sent = {}
-        self.en_lemmas_sent = {}
-        self.grc_en_sent = {}
-        self.get_sent_list_freqs(self.sentences_large)
-        self.get_sent_list_freqs(self.sentences_train)
-        self.get_sent_list_freqs(self.sentences_gold)
-        self.grc_en_pmis = self.get_pmis()
-        self.vectors_en_td, self.vectors_grc_td = self.get_bilingual_embeddings(self.sentences_train, batch_size=batch_size)
-        self.vectors_en_gold, self.vectors_grc_gold = self.get_bilingual_embeddings(self.sentences_gold, batch_size=batch_size)
-        self.vectors_cosines = {}
-        self.lexicon_cosines = {}
+        if 'PMI' in self.features or 'REL_FREQ' in self.features or 'DICE' in self.features:
+            self.total_sent_count = 0
+            self.grc_lemmas_sent = {}
+            self.en_lemmas_sent = {}
+            self.grc_en_sent = {}
+            self.get_sent_list_freqs(self.sentences_large)
+            self.get_sent_list_freqs(self.sentences_train)
+            self.get_sent_list_freqs(self.sentences_gold)
+        if 'PMI' in self.features:
+            self.grc_en_pmis = self.get_pmis()
+        if 'DICE' in self.features:
+            self.grc_en_dices = self.get_dices()
+        if 'ODDS_RATIO' in self.features:
+            self.grc_en_odds_ratios = self.get_odds_ratios()
+        if 'COSINE' in self.features:
+            if is_roberta:
+                self.extractor = VectorExtractor(transformer_path=language_model,tokenizer_add_prefix_space=True,layers=[8])
+            else:
+                self.extractor = VectorExtractor(transformer_path=language_model,tokenizer_add_prefix_space=False,layers=[8])
+            self.vectors_en_td, self.vectors_grc_td = self.get_bilingual_embeddings(self.sentences_train, batch_size=batch_size)
+            self.vectors_en_gold, self.vectors_grc_gold = self.get_bilingual_embeddings(self.sentences_gold, batch_size=batch_size)
+            self.vectors_cosines = {}
+            self.lexicon_cosines = {}
         if not keep_large_corpus:
             self.sentences_large = None
     
@@ -156,15 +165,40 @@ class WordAligner:
             self.en_lemmas_sent[en_lemma] = sent_count
 
     def get_pmis(self,alpha=0.75):        
-        grc_en_pmis = dict()
-        for grc, ens in tqdm(self.grc_en_sent.items(),desc='Calculating pmis'):
+        grc_en_pmis = {}
+        for grc, ens in tqdm(self.grc_en_sent.items(),desc='Calculating PMIs'):
             grc_count = self.grc_lemmas_sent[grc]
-            en_pmis = dict()
+            en_pmis = {}
             for en, observed in ens.items():
                 expected = ((grc_count/self.total_sent_count) * pow(self.en_lemmas_sent[en]/self.total_sent_count,alpha))
                 en_pmis[en] = math.log((observed/self.total_sent_count)/expected,2)
             grc_en_pmis[grc] = en_pmis
         return grc_en_pmis
+    
+    def get_dices(self):
+        grc_en_dices = {}
+        for grc, ens in tqdm(self.grc_en_sent.items(),desc='Calculating DICE coefficients'):
+            grc_count = self.grc_lemmas_sent[grc]
+            en_dices = {}
+            for en, observed in ens.items():
+                en_count = self.en_lemmas_sent[en]
+                en_dices[en] = (2*observed) / (grc_count+en_count) 
+            grc_en_dices[grc] = en_dices
+        return grc_en_dices
+    
+    def get_odds_ratios(self):
+        grc_en_odds_ratios = {}
+        for grc, ens in tqdm(self.grc_en_sent.items(),desc='Calculating odds ratios'):
+            grc_count = self.grc_lemmas_sent[grc]
+            en_odds_ratios = {}
+            for en, observed in ens.items():
+                only_grc = grc_count-observed
+                only_en = self.en_lemmas_sent[en]-observed
+                other_sentences = self.total_sent_count - observed - only_en - only_grc
+                en_odds_ratios[en] = math.log(((observed+0.5)*(other_sentences+0.5))/((only_grc+0.5)*(only_en+0.5))) 
+            grc_en_odds_ratios[grc] = en_odds_ratios
+        return grc_en_odds_ratios
+                
 
     def get_bilingual_embeddings(self, sentences, batch_size=100):
         en_tokenized = []
@@ -244,7 +278,7 @@ class WordAligner:
     def get_group_size(self,data):
         return data.reset_index().groupby("GROUP")['GROUP'].count()
     
-    def build_wa_dataset(self,sentences,vectors_grc,vectors_en,has_gold_alignment=True,use_phrase_model=True,add_phrase_candidates=True):
+    def build_wa_dataset(self,sentences,has_gold_alignment=True,use_phrase_model=True,add_phrase_candidates=True,vectors_grc=None,vectors_en=None):
         group_rows = {}
         gold_alignments = {}
         gold_alignments_tokens = {}
@@ -267,37 +301,38 @@ class WordAligner:
             if len(candidates) > 0:
                 sent_ids_grc = sent['grc_ids']
                 sent_ids_eng = sent['en_ids']
-                grc_matrix = []
-                en_matrix = []
-                for wid in sent_ids_grc:
-                    if wid in vectors_grc:
-                        # Unfortunately, the UGARIT tokenizer sometimes makes splits that exceed the subword limit - these tokens will be ignored (see below)
-                        grc_matrix.append(vectors_grc[wid])
-                for candidate in candidates_all:
-                    valid = True
-                    vecs = []
-                    for index in candidate:
-                        # Also, very occasionally an English candidate needs to be ignored because of the UGARIT tokenizer
-                        if sent_ids_eng[index] in vectors_en:
-                            vecs.append(vectors_en[sent_ids_eng[index]])
+                if 'COSINE' in self.features:
+                    grc_matrix = []
+                    en_matrix = []
+                    for wid in sent_ids_grc:
+                        if wid in vectors_grc:
+                            # Unfortunately, the UGARIT tokenizer sometimes makes splits that exceed the subword limit - these tokens will be ignored (see below)
+                            grc_matrix.append(vectors_grc[wid])
+                    for candidate in candidates_all:
+                        valid = True
+                        vecs = []
+                        for index in candidate:
+                            # Also, very occasionally an English candidate needs to be ignored because of the UGARIT tokenizer
+                            if sent_ids_eng[index] in vectors_en:
+                                vecs.append(vectors_en[sent_ids_eng[index]])
+                            else:
+                                valid = False
+                        if valid:
+                            vecs = np.array(vecs)
+                            vector = np.mean(vecs,axis=0)
+                            en_matrix.append(vector)
                         else:
-                            valid = False
-                    if valid:
-                        vecs = np.array(vecs)
-                        vector = np.mean(vecs,axis=0)
-                        en_matrix.append(vector)
-                    else:
-                        ignore_candidates.append(candidate)
-                grc_matrix = np.array(grc_matrix)
-                en_matrix = np.array(en_matrix)
-                dotproducts = np.dot(grc_matrix, en_matrix.T)
-                grc_norms = np.linalg.norm(grc_matrix, axis=1, keepdims=True)
-                en_norms = np.linalg.norm(en_matrix, axis=1, keepdims=True)
-                cosine_similarities = dotproducts / (grc_norms @ en_norms.T)
-                cosine_index = []
-                for candidate in candidates_all:
-                    if not candidate in ignore_candidates:
-                        cosine_index.append(candidate)
+                            ignore_candidates.append(candidate)
+                    grc_matrix = np.array(grc_matrix)
+                    en_matrix = np.array(en_matrix)
+                    dotproducts = np.dot(grc_matrix, en_matrix.T)
+                    grc_norms = np.linalg.norm(grc_matrix, axis=1, keepdims=True)
+                    en_norms = np.linalg.norm(en_matrix, axis=1, keepdims=True)
+                    cosine_similarities = dotproducts / (grc_norms @ en_norms.T)
+                    cosine_index = []
+                    for candidate in candidates_all:
+                        if not candidate in ignore_candidates:
+                            cosine_index.append(candidate)
                 grc_lemmas = sent['grc_lemmas']
                 grc_tags = None
                 if 'grc_pos' in sent:
@@ -307,11 +342,12 @@ class WordAligner:
                 alignments = None
                 if has_gold_alignment:
                     alignments = sent['alignment']
-                grc_positions, grc_length = self.get_positions(grc_words)
-                en_words = []
-                for word in en_tokens:
-                    en_words.append(word.text)
-                en_positions, en_length = self.get_positions(en_words)
+                if 'POS_DIFF' in self.features:
+                    grc_positions, grc_length = self.get_positions(grc_words)
+                    en_words = []
+                    for word in en_tokens:
+                        en_words.append(word.text)
+                    en_positions, en_length = self.get_positions(en_words)
                 for grc_no, grc_token in enumerate(grc_words):
                     grc_id = int(sent_ids_grc[grc_no])
                     if not is_punct(grc_token) and str(grc_id) in vectors_grc:
@@ -322,13 +358,20 @@ class WordAligner:
                             grc_pos = grc_tags[grc_no]
                         if alignments is not None:
                             alignment = alignments.get(grc_no,[])
-                        pmis = self.grc_en_pmis.get(grc_lemma,{})
-                        grc_en_freqs = self.grc_en_sent.get(grc_lemma,{})
-                        grc_freq = self.grc_lemmas_sent.get(grc_lemma,0)
+                        if 'PMI' in self.features:
+                            pmis = self.grc_en_pmis.get(grc_lemma,{})
+                        if 'DICE' in self.features:
+                            dices = self.grc_en_dices.get(grc_lemma,{})
+                        if 'ODDS_RATIO' in self.features:
+                            odds_ratios = self.grc_en_odds_ratios.get(grc_lemma,{})
+                        if 'REL_FREQ' in self.features:
+                            grc_en_freqs = self.grc_en_sent.get(grc_lemma,{})
+                            grc_freq = self.grc_lemmas_sent.get(grc_lemma,0)
                         #grc_loc = grc_no / (len(grc_words)-1)
-                        grc_loc = 0
-                        if grc_length > 1:
-                            grc_loc = grc_positions[grc_no] / (grc_length-1)
+                        if 'POS_DIFF' in self.features:
+                            grc_loc = 0
+                            if grc_length > 1:
+                                grc_loc = grc_positions[grc_no] / (grc_length-1)
                         if has_gold_alignment:
                             gold_alignments[grc_id] = alignment
                             gold_alignment_tokens = []
@@ -339,10 +382,11 @@ class WordAligner:
                             # Again, ignored because of tokenizer limits
                             if not candidate in ignore_candidates:
             #                    en_loc = ((candidate[0]+candidate[len(candidate)-1])/2) / (len(en_tokens)-1)
-                                en_loc = 0
-                                if en_length > 1:
-                                    en_loc = ((en_positions[candidate[0]] + en_positions[candidate[len(candidate)-1]]) / 2) / (en_length-1)
-                                pos_diff = abs(grc_loc-en_loc)
+                                if 'POS_DIFF' in self.features:
+                                    en_loc = 0
+                                    if en_length > 1:
+                                        en_loc = ((en_positions[candidate[0]] + en_positions[candidate[len(candidate)-1]]) / 2) / (en_length-1)
+                                    pos_diff = abs(grc_loc-en_loc)
                                 candidate_en_tokens = []
                                 candidate_en_lemmas = []
                                 candidate_en_postags = []
@@ -363,86 +407,120 @@ class WordAligner:
                                     else:
                                         if candidate[0] in alignment:
                                             match = 1
-                                cosine = cosine_similarities[grc_no][cosine_index.index(candidate)]
-                                pmi = pmis.get(candidate_en_lemmas_str,None)
-                                if use_phrase_model and not add_phrase_candidates and pmi is not None:
-                                    for candidate in phrase_candidates:
-                                        phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
-                                        phrase_pmi = pmis.get(phrase_candidate_en_lemmas_str,0)
-                                        if phrase_pmi > pmi:
-                                            pmi = phrase_pmi
-                                rel_freq = 0
-                                if grc_freq > 0:
-                                    rel_freq = grc_en_freqs.get(candidate_en_lemmas_str,0) / grc_freq
+                                if 'COSINE' in self.features:
+                                    cosine = cosine_similarities[grc_no][cosine_index.index(candidate)]
+                                if 'PMI' in self.features:
+                                    pmi = pmis.get(candidate_en_lemmas_str,None)
+                                    if use_phrase_model and not add_phrase_candidates and pmi is not None:
+                                        for candidate in phrase_candidates:
+                                            phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                            phrase_pmi = pmis.get(phrase_candidate_en_lemmas_str,0)
+                                            if phrase_pmi > pmi:
+                                                pmi = phrase_pmi
+                                if 'DICE' in self.features:
+                                    dice = dices.get(candidate_en_lemmas_str,None)
+                                    if use_phrase_model and not add_phrase_candidates and dice is not None:
+                                        for candidate in phrase_candidates:
+                                            phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                            phrase_dice = dices.get(phrase_candidate_en_lemmas_str,0)
+                                            if phrase_dice > dice:
+                                                dice = phrase_dice
+                                if 'ODDS_RATIO' in self.features:
+                                    odds_ratio = odds_ratios.get(candidate_en_lemmas_str,None)
+                                    if use_phrase_model and not add_phrase_candidates and odds_ratio is not None:
+                                        for candidate in phrase_candidates:
+                                            phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                            phrase_odds_ratio = odds_ratios.get(phrase_candidate_en_lemmas_str,0)
+                                            if phrase_odds_ratio > odds_ratio:
+                                                odds_ratio = phrase_odds_ratio
+                                if 'REL_FREQ' in self.features:
+                                    rel_freq = 0
+                                    if grc_freq > 0:
+                                        rel_freq = grc_en_freqs.get(candidate_en_lemmas_str,0) / grc_freq
+                                        if use_phrase_model and not add_phrase_candidates:
+                                            for candidate in phrase_candidates:
+                                                phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                                phrase_rel_freq = grc_en_freqs.get(phrase_candidate_en_lemmas_str,0) / grc_freq
+                                                if phrase_rel_freq > rel_freq:
+                                                    rel_freq = phrase_rel_freq
+                                    rel_freq_en = 0
+                                    en_freq = self.en_lemmas_sent.get(candidate_en_lemmas_str,0)
+                                    if en_freq > 0:
+                                        rel_freq_en = grc_en_freqs.get(candidate_en_lemmas_str,0) / en_freq
+                                        if use_phrase_model and not add_phrase_candidates:
+                                            for candidate in phrase_candidates:
+                                                phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                                phrase_rel_freq = grc_en_freqs.get(phrase_candidate_en_lemmas_str,0) / en_freq
+                                                if phrase_rel_freq > rel_freq_en:
+                                                    rel_freq_en = phrase_rel_freq
+                                if 'COSINE_STATIC' in self.features:
+                                    grc_stripped = (strip_accents(grc_lemma).replace('ς','σ')).lower()
+                                    cosine_static = None
+                                    if grc_stripped + '_' + candidate_en_lemmas_str.replace('_-','') in self.vectors_cosines:
+                                        cosine_static = self.vectors_cosines[grc_stripped + '_' + candidate_en_lemmas_str.replace('_-','')]
+                                    elif '/c/grc/'+grc_stripped in self.vectors and '/c/en/'+candidate_en_lemmas_str.replace('_-','') in self.vectors:
+                                        cosine_static = np.dot(self.vectors['/c/grc/'+grc_stripped], self.vectors['/c/en/'+candidate_en_lemmas_str.replace('_-','')])/(np.linalg.norm(self.vectors['/c/grc/'+grc_stripped])* np.linalg.norm(self.vectors['/c/en/'+candidate_en_lemmas_str.replace('_-','')]))
+                                        self.vectors_cosines[grc_stripped + '_' + candidate_en_lemmas_str.replace('_-','')] = cosine_static
+                                    if cosine_static is not None and use_phrase_model and not add_phrase_candidates:
+                                        for candidate in phrase_candidates:
+                                            phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                            if grc_stripped + '_' + phrase_candidate_en_lemmas_str.replace('_-','') in self.vectors_cosines:
+                                                phrase_cosine_static = self.vectors_cosines[grc_stripped + '_' + phrase_candidate_en_lemmas_str.replace('_-','')]
+                                            elif '/c/grc/'+grc_stripped in self.vectors and '/c/en/'+phrase_candidate_en_lemmas_str.replace('_-','') in self.vectors:
+                                                phrase_cosine_static = np.dot(self.vectors['/c/grc/'+grc_stripped], self.vectors['/c/en/'+phrase_candidate_en_lemmas_str.replace('_-','')])/(np.linalg.norm(self.vectors['/c/grc/'+grc_stripped])* np.linalg.norm(self.vectors['/c/en/'+phrase_candidate_en_lemmas_str.replace('_-','')]))
+                                                self.vectors_cosines[grc_stripped + '_' + phrase_candidate_en_lemmas_str.replace('_-','')] = phrase_cosine_static
+                                                if phrase_cosine_static > cosine_static:
+                                                    cosine_static = phrase_cosine_static
+                                if 'IN_LEXICON' in self.features:
+                                    in_lexicon = False
+                                    if grc_lemma in self.lexicon:
+                                        in_lexicon = candidate_en_lemmas_str.replace('_-','') in self.lexicon[grc_lemma]
+                                        if not in_lexicon and use_phrase_model and not add_phrase_candidates:
+                                            for candidate in phrase_candidates:
+                                                phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
+                                                phrase_in_lexicon = phrase_candidate_en_lemmas_str.replace('_-','') in self.lexicon[grc_lemma]
+                                                if phrase_in_lexicon:
+                                                    in_lexicon = True
+                                                    break
+                                if 'COSINE_LEXICON' in self.features:
+                                    cosine_lexicon = self.get_cosine_lexicon(grc_lemma,candidate_en_lemmas_str.replace('_-',''))
                                     if use_phrase_model and not add_phrase_candidates:
                                         for candidate in phrase_candidates:
                                             phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
-                                            phrase_rel_freq = grc_en_freqs.get(phrase_candidate_en_lemmas_str,0) / grc_freq
-                                            if phrase_rel_freq > rel_freq:
-                                                rel_freq = phrase_rel_freq
-                                rel_freq_en = 0
-                                en_freq = self.en_lemmas_sent.get(candidate_en_lemmas_str,0)
-                                if en_freq > 0:
-                                    rel_freq_en = grc_en_freqs.get(candidate_en_lemmas_str,0) / en_freq
-                                    if use_phrase_model and not add_phrase_candidates:
-                                        for candidate in phrase_candidates:
-                                            phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
-                                            phrase_rel_freq = grc_en_freqs.get(phrase_candidate_en_lemmas_str,0) / en_freq
-                                            if phrase_rel_freq > rel_freq_en:
-                                                rel_freq_en = phrase_rel_freq
-                                grc_stripped = (strip_accents(grc_lemma).replace('ς','σ')).lower()
-                                cosine_static = None
-                                if grc_stripped + '_' + candidate_en_lemmas_str.replace('_-','') in self.vectors_cosines:
-                                    cosine_static = self.vectors_cosines[grc_stripped + '_' + candidate_en_lemmas_str.replace('_-','')]
-                                elif '/c/grc/'+grc_stripped in self.vectors and '/c/en/'+candidate_en_lemmas_str.replace('_-','') in self.vectors:
-                                    cosine_static = np.dot(self.vectors['/c/grc/'+grc_stripped], self.vectors['/c/en/'+candidate_en_lemmas_str.replace('_-','')])/(np.linalg.norm(self.vectors['/c/grc/'+grc_stripped])* np.linalg.norm(self.vectors['/c/en/'+candidate_en_lemmas_str.replace('_-','')]))
-                                    self.vectors_cosines[grc_stripped + '_' + candidate_en_lemmas_str.replace('_-','')] = cosine_static
-                                if cosine_static is not None and use_phrase_model and not add_phrase_candidates:
-                                    for candidate in phrase_candidates:
-                                        phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
-                                        if grc_stripped + '_' + phrase_candidate_en_lemmas_str.replace('_-','') in self.vectors_cosines:
-                                            phrase_cosine_static = self.vectors_cosines[grc_stripped + '_' + phrase_candidate_en_lemmas_str.replace('_-','')]
-                                        elif '/c/grc/'+grc_stripped in self.vectors and '/c/en/'+phrase_candidate_en_lemmas_str.replace('_-','') in self.vectors:
-                                            phrase_cosine_static = np.dot(self.vectors['/c/grc/'+grc_stripped], self.vectors['/c/en/'+phrase_candidate_en_lemmas_str.replace('_-','')])/(np.linalg.norm(self.vectors['/c/grc/'+grc_stripped])* np.linalg.norm(self.vectors['/c/en/'+phrase_candidate_en_lemmas_str.replace('_-','')]))
-                                            self.vectors_cosines[grc_stripped + '_' + phrase_candidate_en_lemmas_str.replace('_-','')] = phrase_cosine_static
-                                            if phrase_cosine_static > cosine_static:
-                                                cosine_static = phrase_cosine_static
-                                in_lexicon = False
-                                if grc_lemma in self.lexicon:
-                                    in_lexicon = candidate_en_lemmas_str.replace('_-','') in self.lexicon[grc_lemma]
-                                    if not in_lexicon and use_phrase_model and not add_phrase_candidates:
-                                        for candidate in phrase_candidates:
-                                            phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
-                                            phrase_in_lexicon = phrase_candidate_en_lemmas_str.replace('_-','') in self.lexicon[grc_lemma]
-                                            if phrase_in_lexicon:
-                                                in_lexicon = True
-                                                break
-                                cosine_lexicon = self.get_cosine_lexicon(grc_lemma,candidate_en_lemmas_str.replace('_-',''))
-                                if use_phrase_model and not add_phrase_candidates:
-                                    for candidate in phrase_candidates:
-                                        phrase_candidate_en_lemmas_str = '_'.join([en_tokens[index].lemma_.lower() for index in candidate])
-                                        phrase_cosine_lexicon = self.get_cosine_lexicon(grc_lemma,phrase_candidate_en_lemmas_str.replace('_-',''))
-                                        if phrase_cosine_lexicon > cosine_lexicon:
-                                            cosine_lexicon = phrase_cosine_lexicon
-                                is_phrase = len(candidate) > 1
+                                            phrase_cosine_lexicon = self.get_cosine_lexicon(grc_lemma,phrase_candidate_en_lemmas_str.replace('_-',''))
+                                            if phrase_cosine_lexicon > cosine_lexicon:
+                                                cosine_lexicon = phrase_cosine_lexicon
+                                if 'IS_PHRASE' in self.features:
+                                    is_phrase = len(candidate) > 1
+                                row = [grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate]
                                 if has_gold_alignment:
-                                    if add_phrase_candidates:
-                                        data.append([grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate,match,cosine,pmi,rel_freq,pos_diff,in_lexicon,cosine_static,cosine_lexicon,is_phrase])
-                                    else:
-                                        data.append([grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate,match,cosine,pmi,rel_freq,pos_diff,in_lexicon,cosine_static,cosine_lexicon])
-    #                                data.append([grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate,match,cosine,pmi,rel_freq,rel_freq_en,pos_diff,in_lexicon,cosine_static,cosine_lexicon,is_phrase])
-                                else:
-                                    if add_phrase_candidates:
-                                        data.append([grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate,cosine,pmi,rel_freq,pos_diff,in_lexicon,cosine_static,cosine_lexicon,is_phrase])
-                                    else:
-                                        data.append([grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate,match,cosine,pmi,rel_freq,pos_diff,in_lexicon,cosine_static,cosine_lexicon])
-    #                                data.append([grc_id,sent_no,grc_token,' '.join(candidate_en_tokens),grc_no,candidate,cosine,pmi,rel_freq,rel_freq_en,pos_diff,in_lexicon,cosine_static,cosine_lexicon,is_phrase])
+                                    row.append(match)
+                                if 'COSINE' in self.features:
+                                    row.append(cosine)
+                                if 'PMI' in self.features:
+                                    row.append(pmi)
+                                if 'DICE' in self.features:
+                                    row.append(dice)
+                                if 'ODDS_RATIO' in self.features:
+                                    row.append(odds_ratio)
+                                if 'REL_FREQ' in self.features:
+                                    row.append(rel_freq)
+                                if 'POS_DIFF' in self.features:
+                                    row.append(pos_diff)
+                                if 'IN_LEXICON' in self.features:
+                                    row.append(in_lexicon)
+                                if 'COSINE_STATIC' in self.features:
+                                    row.append(cosine_static)
+                                if 'COSINE_LEXICON' in self.features:
+                                    row.append(cosine_lexicon)
+                                if add_phrase_candidates and 'IS_PHRASE' in self.features:
+                                    row.append(is_phrase)
+                                data.append(row)
                                 row_index += 1
                                 if grc_id in group_rows:
                                     group_rows[grc_id][1] = row_index
                                 else:
                                     group_rows[grc_id] = [row_index,row_index]
-            #                    data.append([group_index,grc_token,' '.join(candidate_en_tokens),candidate,match,cosine,pmi,rel_freq,pos_diff,in_lexicon,cosine_static,cosine_lexicon,is_phrase,grc_pos,en_postag])
         if has_gold_alignment:
             return data, group_rows, gold_alignments, gold_alignments_tokens
         else:
@@ -450,15 +528,17 @@ class WordAligner:
         
     def train(self,evaluate=True,ignore_features=None,build_datasets=False):
         if (not hasattr(self,'training_data')) or build_datasets:
-            self.training_data, self.td_group_rows, self.td_alignments, self.td_alignments_tokens = self.build_wa_dataset(self.sentences_train,self.vectors_grc_td,self.vectors_en_td,use_phrase_model=True,add_phrase_candidates=True)
-        train = pd.DataFrame(self.training_data,columns=['GROUP','SENT','GRC','EN','GRC_INDEX','EN_INDICES','ALIGNED','COSINE','PMI','REL_FREQ','POS_DIFF','IN_LEXICON','COSINE_STATIC','COSINE_LEXICON','IS_PHRASE'])
+            self.training_data, self.td_group_rows, self.td_alignments, self.td_alignments_tokens = self.build_wa_dataset(self.sentences_train,vectors_grc=self.vectors_grc_td,vectors_en=self.vectors_en_td,use_phrase_model=True,add_phrase_candidates=True)
+        columns = ['GROUP','SENT','GRC','EN','GRC_INDEX','EN_INDICES','ALIGNED']
+        columns.extend(self.features)
+        train = pd.DataFrame(self.training_data,columns=columns)
         if ignore_features is not None:
             train.drop(columns=ignore_features,inplace=True)
         self.model = self.train_model(train,False,seed=12345,n_estimators=300)
         if evaluate:
             if (not hasattr(self,'gold_data')) or build_datasets:
-                self.gold_data, self.gold_group_rows, self.gold_alignments, self.gold_alignments_tokens = self.build_wa_dataset(self.sentences_gold,self.vectors_grc_gold,self.vectors_en_gold,use_phrase_model=True,add_phrase_candidates=True)
-            gold = pd.DataFrame(self.gold_data,columns=['GROUP','SENT','GRC','EN','GRC_INDEX','EN_INDICES','ALIGNED','COSINE','PMI','REL_FREQ','POS_DIFF','IN_LEXICON','COSINE_STATIC','COSINE_LEXICON','IS_PHRASE'])
+                self.gold_data, self.gold_group_rows, self.gold_alignments, self.gold_alignments_tokens = self.build_wa_dataset(self.sentences_gold,vectors_grc=self.vectors_grc_gold,vectors_en=self.vectors_en_gold,use_phrase_model=True,add_phrase_candidates=True)
+            gold = pd.DataFrame(self.gold_data,columns=columns)
             if ignore_features is not None:
                 gold.drop(columns=ignore_features,inplace=True)
             predictions = np.array(self.model.predict(gold.copy().drop(columns=['GROUP','SENT','GRC','EN','GRC_INDEX','EN_INDICES','ALIGNED'])))
