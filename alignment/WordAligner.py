@@ -14,7 +14,9 @@ from alignment.Datasets import build_dataset
 from alignment.Scorer import Scorer
 from tqdm import tqdm
 import random
-
+from scipy.sparse import csr_matrix, save_npz, load_npz
+import pickle
+        
 def is_punct(token):
     return token in punctuation or token == '·' or token == ';' or token == '·'
 
@@ -24,7 +26,7 @@ def strip_accents(s):
 
 class WordAligner:
 
-    def __init__(self, lexicon_file, vectors_name, large_corpus, training_data, gold_data, features=['COSINE','PMI','REL_FREQ','POS_DIFF','IN_LEXICON','COSINE_STATIC','COSINE_LEXICON','IS_PHRASE'], language_model=None, is_roberta=False,batch_size=100,keep_large_corpus=False):
+    def __init__(self, lexicon_file, vectors_name, large_corpus=None, training_data=None, gold_data=None, freq_matrix=None, freq_matrix_data=None, phrase_model=None, features=['COSINE','PMI','REL_FREQ','POS_DIFF','IN_LEXICON','COSINE_STATIC','COSINE_LEXICON','IS_PHRASE'], language_model=None, is_roberta=False,batch_size=100,keep_large_corpus=False):
         self.lexicon = self.build_lexicon(lexicon_file)
         self.mwes = self.build_mwes()
         self.mwe_tokenizer = MWETokenizer(self.mwes)
@@ -37,27 +39,46 @@ class WordAligner:
                 if k.startswith('/c/en/') or k.startswith('/c/grc/'):
                     vectors_red[k] = vectors[k]
             self.vectors = vectors_red
-        self.sentences_large = build_dataset(**large_corpus,nlp=self.nlp)
-        self.sentences_train = build_dataset(**training_data,nlp=self.nlp)
-        self.sentences_gold = build_dataset(**gold_data,nlp=self.nlp)
-        self.build_phrases(corpora=[self.sentences_large,self.sentences_train,self.sentences_gold])
-        self.phrase_analyze(self.sentences_large)
-        self.phrase_analyze(self.sentences_train)
-        self.phrase_analyze(self.sentences_gold)
+        if large_corpus is not None:
+            self.sentences_large = build_dataset(**large_corpus,nlp=self.nlp)
+        if training_data is not None:
+            self.sentences_train = build_dataset(**training_data,nlp=self.nlp)
+        if gold_data is not None:
+            self.sentences_gold = build_dataset(**gold_data,nlp=self.nlp)
+        if phrase_model is None:
+            self.build_phrases(corpora=[self.sentences_large,self.sentences_train,self.sentences_gold])
+        else:
+            self.phrase_model = Phrases.load(phrase_model)
+        if large_corpus is not None:
+            self.phrase_analyze(self.sentences_large)
+        if training_data is not None:
+            self.phrase_analyze(self.sentences_train)
+        if gold_data is not None:
+            self.phrase_analyze(self.sentences_gold)
         if 'PMI' in self.features or 'REL_FREQ' in self.features or 'DICE' in self.features:
             self.total_sent_count = 0
             self.grc_lemmas_sent = {}
             self.en_lemmas_sent = {}
             self.grc_en_sent = {}
-            self.get_sent_list_freqs(self.sentences_large)
-            self.get_sent_list_freqs(self.sentences_train)
-            self.get_sent_list_freqs(self.sentences_gold)
+            if freq_matrix is not None and freq_matrix_data is not None:
+                self.load_frequencies(freq_matrix, freq_matrix_data)
+            else:
+                if large_corpus is not None:
+                    self.get_sent_list_freqs(self.sentences_large)
+                if training_data is not None:
+                    self.get_sent_list_freqs(self.sentences_train)
+                if gold_data is not None:
+                    self.get_sent_list_freqs(self.sentences_gold)
         if 'PMI' in self.features:
             self.grc_en_pmis = self.get_pmis()
         if 'DICE' in self.features:
             self.grc_en_dices = self.get_dices()
         if 'ODDS_RATIO' in self.features:
             self.grc_en_odds_ratios = self.get_odds_ratios()
+        self.vectors_en_td = None
+        self.vectors_grc_td = None
+        self.vectors_en_gold = None
+        self.vectors_grc_gold = None
         if 'COSINE' in self.features:
             if is_roberta:
                 self.extractor = VectorExtractor(transformer_path=language_model,tokenizer_add_prefix_space=True,layers=[8])
@@ -69,6 +90,44 @@ class WordAligner:
             self.lexicon_cosines = {}
         if not keep_large_corpus:
             self.sentences_large = None
+    
+    def write_frequencies(self,freq_matrix_file,freq_matrix_data_file):
+        rows = list(self.grc_lemmas_sent.keys())
+        cols = list(self.en_lemmas_sent.keys())
+        row_index = {k: v for k, v in enumerate(rows)}
+        col_index = {k: v for k, v in enumerate(cols)}
+        row_index_rev = {v: k for k, v in row_index.items()}
+        col_index_rev = {v: k for k, v in col_index.items()}
+        matrix_rows = []
+        matrix_cols = []
+        matrix_data = []
+        for grc, en_freqs in tqdm(self.grc_en_sent.items(),desc='Building sparse matrix for writing'):
+            for en, freq in en_freqs.items():
+                matrix_rows.append(row_index_rev[grc])
+                matrix_cols.append(col_index_rev[en])
+                matrix_data.append(freq)
+        sparse_matrix = csr_matrix((matrix_data, (matrix_rows, matrix_cols)), shape=(len(rows), len(cols)))
+        save_npz(freq_matrix_file,sparse_matrix)
+        freq_matrix_data = {'rows':row_index,'cols':col_index,'total_sent_count':self.total_sent_count,'grc_lemmas_sent':self.grc_lemmas_sent,'en_lemmas_sent':self.en_lemmas_sent}
+        with open(freq_matrix_data_file,'wb') as outfile:
+            pickle.dump(freq_matrix_data,outfile,pickle.HIGHEST_PROTOCOL)
+    
+    def load_frequencies(self,freq_matrix_file,freq_matrix_data_file):
+        with open(freq_matrix_data_file,'rb') as infile:
+            freq_matrix_data = pickle.load(infile)
+        sparse_matrix = load_npz(freq_matrix_file)
+        dok = sparse_matrix.todok()
+        grc_en_freqs = {}
+        for k, v in tqdm(dok.items(),desc='Loading matrix'):
+            grc = freq_matrix_data['rows'][k[0]]
+            en = freq_matrix_data['cols'][k[1]]
+            en_freqs = grc_en_freqs.get(grc,{})
+            en_freqs[en] = v
+            grc_en_freqs[grc] = en_freqs
+        self.grc_en_sent = grc_en_freqs
+        self.total_sent_count = freq_matrix_data['total_sent_count']
+        self.grc_lemmas_sent = freq_matrix_data['grc_lemmas_sent']
+        self.en_lemmas_sent = freq_matrix_data['en_lemmas_sent']
     
     def build_lexicon(self,lexicon_file):
         lexicon = {}
@@ -205,8 +264,8 @@ class WordAligner:
         en_ids = []
         grc_tokenized = []
         grc_ids = []
-        en_index = 0
-        grc_index = 0
+        #en_index = 0
+        #grc_index = 0
         for sent in sentences:
             en_split = []
             for token in sent['en_tokens']:
@@ -214,16 +273,16 @@ class WordAligner:
             grc_split = sent['grc']
             en_tokenized.append(en_split)
             grc_tokenized.append(grc_split)
-            en_id = list(range(en_index,en_index+len(en_split)))
-            en_id = [str(x) for x in en_id]
-            sent['en_ids'] = en_id
-            en_ids.append(en_id)
-            grc_id = list(range(grc_index,grc_index+len(grc_split)))
-            grc_id = [str(x) for x in grc_id]
-            sent['grc_ids'] = grc_id
-            grc_ids.append(grc_id)
-            en_index += len(en_split)
-            grc_index += len(grc_split)
+            #en_id = list(range(en_index,en_index+len(en_split)))
+            #en_id = [str(x) for x in en_id]
+            #sent['en_ids'] = en_id
+            en_ids.append(sent['en_ids'])
+            #grc_id = list(range(grc_index,grc_index+len(grc_split)))
+            #grc_id = [str(x) for x in grc_id]
+            #sent['grc_ids'] = grc_id
+            grc_ids.append(sent['grc_ids'])
+            #en_index += len(en_split)
+            #grc_index += len(grc_split)
         dataset = self.extractor.build_dataset(en_ids,en_tokenized,batched=True,batch_size=batch_size)
         vectors_en = self.extractor.extract_vectors(dataset)
         dataset = self.extractor.build_dataset(grc_ids,grc_tokenized,batched=True,batch_size=batch_size)
@@ -305,7 +364,7 @@ class WordAligner:
                     grc_matrix = []
                     en_matrix = []
                     for wid in sent_ids_grc:
-                        if wid in vectors_grc:
+                        if vectors_grc is None or wid in vectors_grc:
                             # Unfortunately, the UGARIT tokenizer sometimes makes splits that exceed the subword limit - these tokens will be ignored (see below)
                             grc_matrix.append(vectors_grc[wid])
                     for candidate in candidates_all:
@@ -350,7 +409,7 @@ class WordAligner:
                     en_positions, en_length = self.get_positions(en_words)
                 for grc_no, grc_token in enumerate(grc_words):
                     grc_id = int(sent_ids_grc[grc_no])
-                    if not is_punct(grc_token) and str(grc_id) in vectors_grc:
+                    if not is_punct(grc_token) and (vectors_grc is None or str(grc_id) in vectors_grc):
                         # The word is ignored if the sentence exceeds the subword limit (see also above)
                         grc_lemma = grc_lemmas[grc_no]
                         grc_pos = None

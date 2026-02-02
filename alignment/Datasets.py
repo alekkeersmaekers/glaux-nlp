@@ -5,20 +5,37 @@ import ast
 
 def build_dataset(input_file,analyze=False,has_grc_forms=True,nlp=None,docbin=None,grc_lemmas=None,grc_tags=None):
     sentences = []
+    en_index = 0
+    grc_index = 0
     with open(input_file,encoding='utf8') as infile:
         lines = infile.readlines()
         for line in lines:
             sl = line.strip('\n').split('\t')
             sent = {}
             if has_grc_forms:
-                sent['grc'] = sl[0].split(' ')
+                grc_split = sl[0].split(' ')
+                sent['grc'] = grc_split
+                grc_id = list(range(grc_index,grc_index+len(grc_split)))
+                grc_id = [str(x) for x in grc_id]
+                sent['grc_ids'] = grc_id
                 sent['eng'] = sl[1]
+                en_split = sl[1].split(' ')
+                en_id = list(range(en_index,en_index+len(en_split)))
+                en_id = [str(x) for x in en_id]
+                sent['en_ids'] = en_id
                 if len(sl) == 3:
                     sent['alignment'] = ast.literal_eval(sl[2])
                     sentences.append(sent)
+                en_index += len(en_split)
+                grc_index += len(grc_split)
             else:
                 sent['eng'] = sl[0]
+                en_split = sl[0].split(' ')
+                en_id = list(range(en_index,en_index+len(en_split)))
+                en_id = [str(x) for x in en_id]
+                sent['en_ids'] = en_id
                 sentences.append(sent)
+                en_index += len(en_split)
     if analyze:
         documents = []
         for sent in sentences:
