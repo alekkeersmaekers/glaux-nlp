@@ -58,9 +58,9 @@ class DataExtractor:
             genres_str = ','.join([f"'{x}'" for x in genres])
             query += f" AND category IN ({genres_str})"
         elif not poetic:
-            query = f" AND category NOT IN ('Comedy', 'Epic poetry', 'Lyric poetry', 'Religious Poetry', 'Scientific Poetry', 'Tragedy')"
+            query += f" AND category NOT IN ('Comedy', 'Epic poetry', 'Lyric poetry', 'Religious Poetry', 'Scientific Poetry', 'Tragedy')"
         elif not prose:
-            query = f" AND category IN ('Comedy', 'Epic poetry', 'Lyric poetry', 'Religious Poetry', 'Scientific Poetry', 'Tragedy')"
+            query += f" AND category IN ('Comedy', 'Epic poetry', 'Lyric poetry', 'Religious Poetry', 'Scientific Poetry', 'Tragedy')"
         conn = connector.initiate_connection()
         try:
             with conn.cursor() as cursor:
