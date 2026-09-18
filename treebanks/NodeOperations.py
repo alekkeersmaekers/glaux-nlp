@@ -1,5 +1,34 @@
 import unicodedata as ud
 
+def getCoordinationComponents(node,tree):
+    # Node is a node with relation COORD
+    coordinates = []
+    shared_modifiers = []
+    coordinators = []
+    coordination_rels = set()
+    for c in children(node,tree):
+        if c['relation'] != 'COORD':
+            coordination_rels.add(realRel(c,tree))
+    if len(coordination_rels) != 1:
+        print(f'Node {node["id"]}: zero or multiple relations: {coordination_rels}')
+
+def realHead(node,tree,rel):
+    if node['head'] is not None:
+        if node['head']['relation'] in ['AuxP','AuxC']:
+            return realHead(node['head'],tree,rel)
+        elif node['head']['relation'] == 'COORD':
+            if rel.endswith('_CO') or rel in ['COORD','AuxY']:
+                return realHead(node['head'],tree,rel)
+            else:
+                for c in children(node['head'],tree):
+                    if c['relation'].endswith('_CO'):
+                        return c
+                return realHead(node['head'],tree,rel)
+        else:
+            return node['head']
+    else:
+        return None
+
 def nonCoordinateHead(node,tree):
     if node['head'] is not None:
         if node['head']['relation'] == 'COORD':
@@ -91,8 +120,8 @@ def realNode(node,tree,print_errors=True):
             if len(nodes2) > 1:
                 id = node['wordid']
                 if print_errors:
-                    print(f'realNode: multiple children found {id}, choosing first node {id}')
-            return nodes2[0]
+                    print(f'realNode: multiple children found {id}, choosing last node {nodes2[-1]["wordid"]}')
+            return nodes2[-1]
     else:
         return node
     

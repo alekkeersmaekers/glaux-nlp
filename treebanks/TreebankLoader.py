@@ -49,15 +49,31 @@ class TreebankLoader():
         treebank.append(sent)
         currentSent.clear()
     
-    def load_database(self,connector,texts,manual_only=False):
+    def load_database(self,connector,texts=None,sents=None,manual_only=False):
         conn = connector.initiate_connection()
-        texts_str = ','.join(map(str,texts))
         try:
             with conn.cursor() as cursor:
+                if texts is not None:
+                    texts_str = ','.join(map(str,texts))
+                if sents is not None:
+                    sents_str = ','.join(map(str,sents))
                 if not manual_only:
-                    query = f'select glaux_id, sentence_id, unit_id, POS_pos, POS_person, POS_number, POS_tense, POS_mood, POS_diathese, POS_gender, POS_morph_case, POS_degree, artificial, word, lemma_string, morphosyntax, target_glaux_word from ((wordorder join written_word_strings on wordorder.written_word_id = written_word_strings.ID) join lemma_strings on written_word_strings.lemma_id = lemma_strings.lemma_id) join text_heads on wordorder.glaux_id = text_heads.source_glaux_word where unit_id in ({texts_str}) order by unit_id, place_in_unit'
+                    query = f'select glaux_id, sentence_id, unit_id, POS_pos, POS_person, POS_number, POS_tense, POS_mood, POS_diathese, POS_gender, POS_morph_case, POS_degree, artificial, word, lemma_string, morphosyntax, target_glaux_word from ((wordorder join written_word_strings on wordorder.written_word_id = written_word_strings.ID) join lemma_strings on written_word_strings.lemma_id = lemma_strings.lemma_id) join text_heads on wordorder.glaux_id = text_heads.source_glaux_word '
+                    if texts is not None:
+                        if sents is not None:
+                            query += f'where unit_id in ({texts_str}) and sentence_id in ({sents_str}) '
+                        else:
+                            query += f'where unit_id in ({texts_str}) '
+                    elif sents is not None:
+                        query += f'where sentence_id in ({sents_str}) '
+                    query += 'order by unit_id, place_in_unit'
                 else:
-                    query = f'select glaux_id, sentence_id, unit_id, POS_pos, POS_person, POS_number, POS_tense, POS_mood, POS_diathese, POS_gender, POS_morph_case, POS_degree, artificial, word, lemma_string, morphosyntax, target_glaux_word from (((wordorder join written_word_strings on wordorder.written_word_id = written_word_strings.ID) join lemma_strings on written_word_strings.lemma_id = lemma_strings.lemma_id) join text_heads on wordorder.glaux_id = text_heads.source_glaux_word) join confirmed_components on wordorder.sentence_id = confirmed_components.structure_id where (unit_id in ({texts_str}) and degree = 2) order by unit_id, place_in_unit'
+                    query = f'select glaux_id, sentence_id, unit_id, POS_pos, POS_person, POS_number, POS_tense, POS_mood, POS_diathese, POS_gender, POS_morph_case, POS_degree, artificial, word, lemma_string, morphosyntax, target_glaux_word from (((wordorder join written_word_strings on wordorder.written_word_id = written_word_strings.ID) join lemma_strings on written_word_strings.lemma_id = lemma_strings.lemma_id) join text_heads on wordorder.glaux_id = text_heads.source_glaux_word) join confirmed_components on wordorder.sentence_id = confirmed_components.structure_id where degree = 2 '
+                    if texts is not None:
+                        query += f'and unit_id in ({texts_str}) '
+                    if sents is not None:
+                        query += f'and sentence_id in ({sents_str}) '
+                    query += f'order by unit_id, place_in_unit'
                 cursor.execute(query)
                 rows = cursor.fetchall()
         finally:
@@ -75,8 +91,8 @@ class TreebankLoader():
                 currentSent['tokens'] = []
                 if self.sent_attr is None or 'id' in self.sent_attr:
                     currentSent['id'] = sent_id
-                if self.sent_attr is None or 'text' in self.sent_attr:
-                    currentSent['text'] = row['unit_id']
+                if self.sent_attr is None or 'unit_id' in self.sent_attr:
+                    currentSent['unit_id'] = row['unit_id']
             currentSentId = sent_id
             word = {}
             if self.token_attr is None or 'id' in self.token_attr:

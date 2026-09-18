@@ -164,7 +164,13 @@ class ParadigmGenerator:
     def get_starting_sound(self,stem):
         starting_sound = 'consonant'
         if ')' in stem or '(' in stem:
-            starting_sound = re.sub(r'([\)\(]).*',r'\1',stem,1)
+            if re.match(r'\*[\)\(]',stem):
+                starting_sound = re.sub(r'(\*[\)\(][aehiouw]+).*',r'\1',stem,1)    
+            else:
+                if stem.startswith('e)oi'):
+                    starting_sound = 'e)oi'
+                else:
+                    starting_sound = re.sub(r'([\)\(]).*',r'\1',stem,1)
         elif len(stem) > 0 and stem[0] in ['l','s','n','d']:
             starting_sound = stem[0]
         return starting_sound

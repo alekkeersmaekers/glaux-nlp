@@ -1,6 +1,7 @@
 import pandas as pd
 from data import TabularDatasets
 from sklearn import model_selection
+from sklearn.linear_model import LogisticRegression
 import xgboost as xgb
 import shap
 import numpy as np
@@ -31,14 +32,14 @@ class MLPClassifier(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-    def train_mlp(self, X, y, epochs=200, batch_size=200, lr=0.001, weight_decay=0.0001):
+    def train_mlp(self, X, y, epochs=200, batch_size=200, lr=0.001, weight_decay=0.0001, show_progress=True):
         
         optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=weight_decay)
         criterion = nn.CrossEntropyLoss()
         dataset = TensorDataset(torch.tensor(X, dtype=torch.float32),torch.tensor(y, dtype=torch.long))
         loader = DataLoader(dataset, batch_size=min(batch_size, len(dataset)), shuffle=True)
         self.train()
-        for epoch in tqdm(range(epochs)):
+        for _ in tqdm(range(epochs),disable=not(show_progress)):
             for xb, yb in loader:
                 xb, yb = xb.to(self.device), yb.to(self.device)
                 optimizer.zero_grad()
@@ -83,13 +84,15 @@ class TabularClassifier:
             if class_column is not None:
                 self.class_name = class_column
                 self.test_data = self.test_data.astype({class_column: "category"})
+        else:
+            self.test_data = None
         self.train_gpu = train_gpu
         self.model_type = model_type
         if self.model_type == 'mlp':
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.ignore_columns = ignore_columns
     
-    def train(self,shuffle_data=True,random_state=None,model_params=None,xgboost_trees=10,mlp_layers=(100,)):
+    def train(self,shuffle_data=True,random_state=None,model_params=None,xgboost_trees=10,mlp_layers=(100,),show_progress=True,print_messages=True):
         if self.model_type == 'xgboost':
             if model_params is None:
                 model_params = {}
@@ -99,13 +102,15 @@ class TabularClassifier:
                 model_params['random_state'] = random_state
             if self.train_gpu:
                 model_params['device'] = 'cuda'
+        training_data = self.training_data.copy()
         if shuffle_data:
             if random_state is None:
-                self.training_data = self.training_data.sample(frac=1)
+                training_data = training_data.sample(frac=1)
             else:
-                self.training_data = self.training_data.sample(frac=1,random_state=random_state)
-        print(f'Training classifier')
-        train = self.training_data.copy()
+                training_data = training_data.sample(frac=1,random_state=random_state)
+        if print_messages:
+            print(f'Training classifier')
+        train = training_data.copy()
         label = train[self.class_name].cat.codes
         label_encoder = train[self.class_name].cat.categories
         if self.ignore_columns is not None:
@@ -127,21 +132,25 @@ class TabularClassifier:
             if random_state is not None:
                 torch.manual_seed(random_state)
             model = MLPClassifier(input_dim=len(train.columns),hidden_dims=mlp_layers,output_dim=len(label_encoder),device=self.device)
-            model.train_mlp(X=np.array(train.values, dtype=np.float32),y=np.array(label, dtype=np.int64),**model_params)
+            model.train_mlp(X=np.array(train.values, dtype=np.float32),y=np.array(label, dtype=np.int64),show_progress=show_progress,**model_params)
             if self.test_data is not None:
                 test = self.test_data.copy()
                 if self.ignore_columns is not None:
                     test.drop(columns=self.ignore_columns,inplace=True)
                 test.drop(columns=[self.class_name],inplace=True)
                 predictions = model.predict(X=np.array(test.values, dtype=np.float32),pred='class')
+        elif self.model_type == 'logistic':
+            model = LogisticRegression(**model_params)
+            model.fit(train,label)
         if self.test_data is not None:
             self.set_predictions(label_encoder[predictions.astype(int)])
-            print(f'Accuracy: {self.get_accuracy(self.test_data)}')
+            if print_messages:
+                print(f'Accuracy: {self.get_accuracy(self.test_data)}')
         self.models = [model]
         self.label_encoders = [label_encoder]
 
-    def train_and_test_nfold(self,n=10,stratified=True,shuffle_data=True,random_state=None,model_type='xgboost',model_params=None,xgboost_trees=10):
-        if model_type == 'xgboost':
+    def train_and_test_nfold(self,n=10,stratified=True,shuffle_data=True,random_state=None,model_params=None,xgboost_trees=10,is_binary=False):
+        if self.model_type == 'xgboost':
             if model_params is None:
                 model_params = {}
                 model_params['objective'] = 'multi:softmax'
@@ -150,24 +159,29 @@ class TabularClassifier:
                 model_params['random_state'] = random_state
             if self.train_gpu:
                 model_params['device'] = 'cuda'
+        elif self.model_type == 'logistic':
+            # For logistic, binary is the default at the moment, this code won't work if binary=False
+            # Probably MLP won't work with binary=True, I should test it
+            is_binary = True
+        training_data = self.training_data.copy()
         if shuffle_data:
             if random_state is None:
-                self.training_data = self.training_data.sample(frac=1)
+                training_data = training_data.sample(frac=1)
             else:
-                self.training_data = self.training_data.sample(frac=1,random_state=random_state)
+                training_data = training_data.sample(frac=1,random_state=random_state)
         if stratified:
             kf = model_selection.StratifiedKFold(n_splits=n)
         else:
             kf = model_selection.KFold(n_splits=n)
-        split = kf.split(self.training_data,self.training_data[self.class_name])
+        split = kf.split(training_data,training_data[self.class_name])
         all_predictions = []
         models = []
         test_folds = []
         label_encoders = []
         for fold, indices in enumerate(split):
             print(f'Training fold {fold}')
-            train = self.training_data.iloc[indices[0]].copy()
-            test = self.training_data.iloc[indices[1]].copy()
+            train = training_data.iloc[indices[0]].copy()
+            test = training_data.iloc[indices[1]].copy()
             label = train[self.class_name].cat.codes
             label_encoder = train[self.class_name].cat.categories
             if self.ignore_columns is not None:
@@ -175,17 +189,25 @@ class TabularClassifier:
                 test.drop(columns=self.ignore_columns,inplace=True)
             train.drop(columns=[self.class_name],inplace=True)
             test.drop(columns=[self.class_name],inplace=True)
-            if model_type == 'xgboost':
+            if self.model_type == 'xgboost':
                 if model_params['objective'] in ['multi:softmax','multi:softprob']:
                     model_params['num_class'] = len(label_encoder)
                 train_matrix = xgb.DMatrix(data=train,label=label,enable_categorical=True)
                 model = xgb.train(model_params,train_matrix,num_boost_round=xgboost_trees)
                 test_matrix = xgb.DMatrix(data=test,enable_categorical=True)
                 predictions = model.predict(test_matrix)
-            elif model_type == 'mlp':
+            elif self.model_type == 'mlp':
                 model = MLPClassifier(random_state=random_state,**model_params).fit(train,label)
                 predictions = model.predict(test)
-            all_predictions.extend(label_encoder[predictions.astype(int)])
+            elif self.model_type == 'logistic':
+                model = LogisticRegression(**model_params)
+                model.fit(train,label)
+                predictions = model.predict_proba(test)
+                predictions = [pred[1] for pred in predictions]
+            if is_binary:
+                all_predictions.extend(predictions)
+            else:
+                all_predictions.extend(label_encoder[predictions.astype(int)])
             models.append(model)
             test_folds.append(test)
             label_encoders.append(label_encoder)
