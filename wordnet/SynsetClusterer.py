@@ -17,6 +17,7 @@ from collections import Counter
 import json
 import pickle
 import warnings
+from pickle import NONE
 
 class SynsetClusterer:
     
@@ -212,24 +213,27 @@ class SynsetClusterer:
                             if not found:
                                 cluster.append(synset)
                             found = True
-                            data.append([synset,cluster[0],True,definition_similarity,bert_similarity,lexicalization_similarity,lch_similarity, wup_similarity, res_similarity, jcn_similarity, lin_similarity])       
+                            data.append([lemma,synset,cluster[0],True,definition_similarity,bert_similarity,lexicalization_similarity,lch_similarity, wup_similarity, res_similarity, jcn_similarity, lin_similarity])       
                             #data.append([synset,cluster[0],True,definition_similarity,bert_similarity,lexicalization_similarity,path_similarity, lch_similarity, wup_similarity, res_similarity, jcn_similarity, lin_similarity])
                         else:
-                            data.append([synset,cluster[0],False,definition_similarity,bert_similarity,lexicalization_similarity,lch_similarity, wup_similarity, res_similarity, jcn_similarity, lin_similarity])
+                            data.append([lemma,synset,cluster[0],False,definition_similarity,bert_similarity,lexicalization_similarity,lch_similarity, wup_similarity, res_similarity, jcn_similarity, lin_similarity])
                             #data.append([synset,cluster[0],False,definition_similarity,bert_similarity,lexicalization_similarity,path_similarity, lch_similarity, wup_similarity, res_similarity, jcn_similarity, lin_similarity])
                     if not found:
                         new_cluster = [synset]
                         current_clusters.append(new_cluster)
         return data
     
-    def train_classifier(self,data,nfold=True,ignore_columns=['SYNSET1','SYNSET2']):
-        df = pd.DataFrame(data,columns=['SYNSET1','SYNSET2','MERGE','DEFINITION_SIM','TOKEN_SIM','LEX_SIM','LCH_SIM','WUP_SIM','RES_SIM','JCN_SIM','LIN_SIM'])
+    def train_classifier(self,data,nfold=True,group_by_lemma=False,ignore_columns=['LEMMA','SYNSET1','SYNSET2']):
+        df = pd.DataFrame(data,columns=['LEMMA','SYNSET1','SYNSET2','MERGE','DEFINITION_SIM','TOKEN_SIM','LEX_SIM','LCH_SIM','WUP_SIM','RES_SIM','JCN_SIM','LIN_SIM'])
         classifier = TabularClassifier(model_type='logistic',ignore_columns=ignore_columns)
         classifier.training_data = df.copy()
         classifier.class_name = 'MERGE'
         classifier.training_data['MERGE'] = classifier.training_data['MERGE'].astype('category')
         if nfold:
-            classifier.train_and_test_nfold(n=10,stratified=False,random_state=12345,model_params={'penalty':'l1','solver':'liblinear','C':1,'random_state':12345})
+            folds_by_column = None
+            if group_by_lemma:
+                folds_by_column = 'LEMMA'
+            classifier.train_and_test_nfold(folds_by_column=folds_by_column,n=10,stratified=False,random_state=12345,model_params={'penalty':'l1','solver':'liblinear','C':1,'random_state':12345})
         else:
             classifier.train(random_state=12345,model_params={'penalty':'l1','solver':'liblinear','C':0.5,'random_state':12345})
             self.cluster_similarity_model = classifier.models[0]

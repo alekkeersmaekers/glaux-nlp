@@ -149,7 +149,7 @@ class TabularClassifier:
         self.models = [model]
         self.label_encoders = [label_encoder]
 
-    def train_and_test_nfold(self,n=10,stratified=True,shuffle_data=True,random_state=None,model_params=None,xgboost_trees=10,is_binary=False):
+    def train_and_test_nfold(self,n=10,stratified=True,shuffle_data=True,random_state=None,model_params=None,xgboost_trees=10,is_binary=False,folds_by_column=None):
         if self.model_type == 'xgboost':
             if model_params is None:
                 model_params = {}
@@ -174,6 +174,9 @@ class TabularClassifier:
         else:
             kf = model_selection.KFold(n_splits=n)
         split = kf.split(training_data,training_data[self.class_name])
+        if folds_by_column is not None:
+            column = training_data[folds_by_column].astype('category').cat.codes
+            split = [[column.index[column != value].tolist(),column.index[column == value].tolist()] for value in column.unique()]
         all_predictions = []
         models = []
         test_folds = []
