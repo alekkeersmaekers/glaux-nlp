@@ -452,7 +452,7 @@ class SynsetClusterer:
     
     def optimize_cluster_algorithm(self,n_iter=1000,init_points=100):
         optimizer = BayesianOptimization(f=self.evaluate_cluster_algorithm,pbounds={"min_wa_zscore":(-5,-1),'min_wsd_prob':(0,0.9),'cluster_prob_threshold':(0,0.9),'abs_freq_threshold':(0,10,int),'rel_freq_threshold':(0,0.1)},random_state=12345,verbose=2)
-        optimizer.probe(params={'min_wa_zscore':-4.573456169202341,'min_wsd_prob':0.31005365998973955,'cluster_prob_threshold':0.4573856172407377,'abs_freq_threshold':8,'rel_freq_threshold':0})
+        optimizer.probe(params={'min_wa_zscore':-5,'min_wsd_prob':0,'cluster_prob_threshold':0.5,'abs_freq_threshold':5,'rel_freq_threshold':0.01})
         optimizer.maximize(n_iter=n_iter,init_points=init_points)
         return optimizer
     
