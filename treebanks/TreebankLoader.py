@@ -91,8 +91,8 @@ class TreebankLoader():
                 currentSent['tokens'] = []
                 if self.sent_attr is None or 'id' in self.sent_attr:
                     currentSent['id'] = sent_id
-                if self.sent_attr is None or 'unit_id' in self.sent_attr:
-                    currentSent['unit_id'] = row['unit_id']
+                if self.sent_attr is None or 'text' in self.sent_attr:
+                    currentSent['text'] = row['unit_id']
             currentSentId = sent_id
             word = {}
             if self.token_attr is None or 'id' in self.token_attr:
